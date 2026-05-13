@@ -1,0 +1,1369 @@
+part of '../main.dart';
+
+class _MetadataStat extends StatelessWidget {
+  final String label;
+  final int value;
+
+  const _MetadataStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value.toString(),
+            style: GoogleFonts.inter(
+              color: _textPri,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              color: _textSub,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsSectionTitle extends StatelessWidget {
+  final String title;
+
+  const _SettingsSectionTitle({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(
+        title,
+        style: GoogleFonts.inter(
+          color: _textPri,
+          fontSize: 18,
+          fontWeight: FontWeight.w900,
+          letterSpacing: -0.3,
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsPrimaryButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color accent;
+  final bool destructive;
+  final VoidCallback onTap;
+
+  const _SettingsPrimaryButton({
+    required this.label,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final background = destructive ? Colors.white.withOpacity(0.12) : accent;
+    final foreground = destructive ? _textPri : Colors.black;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(
+            color: destructive ? Colors.white.withOpacity(0.15) : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: foreground, size: 20),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                color: foreground,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsInfoCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color accent;
+
+  const _SettingsInfoCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassyContainer(
+      radius: 22,
+      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 10),
+      customColor: Colors.white.withOpacity(0.070),
+      customBorder: Colors.white.withOpacity(0.12),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: accent.withOpacity(0.16),
+            ),
+            child: Icon(icon, color: accent, size: 21),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.inter(
+                    color: _textPri,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.inter(
+                    color: _textSub,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsSwitchRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final bool enabled;
+  final Color accent;
+  final ValueChanged<bool> onChanged;
+
+  const _SettingsSwitchRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.accent,
+    required this.onChanged,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveAccent = enabled ? accent : _textSub;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GlassyContainer(
+        radius: 22,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        customColor: Colors.white.withOpacity(0.065),
+        customBorder: Colors.white.withOpacity(0.10),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: effectiveAccent.withOpacity(0.14),
+              ),
+              child: Icon(icon, color: effectiveAccent, size: 21),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.inter(
+                      color: enabled ? _textPri : _textSub,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.inter(
+                      color: _textSub,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Switch(
+              value: value,
+              onChanged: enabled ? onChanged : null,
+              activeColor: accent,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsActionRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final VoidCallback? onTap;
+  final bool destructive;
+
+  const _SettingsActionRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    final effectiveAccent = destructive ? Colors.redAccent : accent;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 180),
+        opacity: enabled ? 1.0 : 0.45,
+        child: GlassyContainer(
+          radius: 20,
+          padding: const EdgeInsets.all(14),
+          margin: const EdgeInsets.only(bottom: 10),
+          customColor: Colors.white.withOpacity(0.065),
+          customBorder: destructive
+              ? Colors.redAccent.withOpacity(0.30)
+              : Colors.white.withOpacity(0.11),
+          child: Row(
+            children: [
+              Icon(icon, color: effectiveAccent, size: 22),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.inter(
+                        color: _textPri,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: GoogleFonts.inter(
+                        color: _textSub,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: _textSub.withOpacity(0.8)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+class _HomeActionCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _HomeActionCard({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 152,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: Colors.white.withOpacity(0.070),
+          border: Border.all(color: Colors.white.withOpacity(0.11)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: accent.withOpacity(0.15),
+                border: Border.all(color: accent.withOpacity(0.22)),
+              ),
+              child: Icon(icon, color: accent, size: 22),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: _textPri,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: _textSub,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeMetric extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _HomeMetric({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              color: _textPri,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              color: _textSub,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeAlbumCard extends StatelessWidget {
+  final Key? key;
+  final Map<String, String> info;
+  final VoidCallback onTap;
+  final bool isDarkMode;
+
+  const _HomeAlbumCard({
+    this.key,
+    required this.info,
+    required this.onTap,
+    required this.isDarkMode,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final name = info['displayName'] ?? info['name'] ?? 'Album';
+    final artist = info['artist'] ?? '';
+    final year = info['year'] ?? '';
+    final genre = info['genre'] ?? '';
+    final coverUrl = info['coverUrl'] ?? info['cover'] ?? '';
+    final gradient = getAlbumGradient(name);
+    
+    final glowColor = isDarkMode ? Colors.white : _neonMagenta;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 138,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                child: Container(
+                  width: 138,
+                  height: 138,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: gradient,
+                    ),
+                    border: Border.all(
+                      color: isDarkMode ? glowColor.withOpacity(0.2) : _lightAccentPink.withOpacity(0.22),
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: isDarkMode ? glowColor.withOpacity(0.15) : _lightAccentPink.withOpacity(0.12),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: coverUrl.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(22),
+                          child: _coverImage(
+                            coverUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+                              name: name,
+                              colors: gradient,
+                              radius: 22,
+                            ),
+                          ),
+                        )
+                      : _AlbumFallbackCover(name: name, colors: gradient, radius: 22),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                color: isDarkMode ? glowColor : _lightText,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              'Album',
+              style: GoogleFonts.inter(
+                color: isDarkMode ? glowColor.withOpacity(0.7) : _lightSubtext,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+class _HomeSectionHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+
+  const _HomeSectionHeader({required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: GoogleFonts.inter(
+            color: _textPri,
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          subtitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: GoogleFonts.inter(
+            color: _textSub,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HomeSpotlightCard extends StatelessWidget {
+  final Map<String, String> info;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _HomeSpotlightCard({
+    required this.info,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = info['displayName'] ?? info['name'] ?? 'Album';
+    final artist = info['artist'] ?? '';
+    final cover = info['cover'] ?? '';
+    final year = info['year'] ?? '';
+    final genre = info['genre'] ?? '';
+    final trackCount = info['trackCount'] ?? '';
+    final gradient = getAlbumGradient(name);
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: GlassyContainer(
+        radius: 30,
+        padding: const EdgeInsets.all(16),
+        customColor: Colors.white.withOpacity(0.075),
+        customBorder: accent.withOpacity(0.20),
+        child: Row(
+          children: [
+            Container(
+              width: 118,
+              height: 118,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                gradient: LinearGradient(colors: gradient),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.28),
+                    blurRadius: 22,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: cover.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(22),
+                      child: _coverImage(
+                        cover,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+                          name: name,
+                          colors: gradient,
+                          radius: 22,
+                        ),
+                      ),
+                    )
+                  : _AlbumFallbackCover(name: name, colors: gradient, radius: 22),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Tonight’s pick',
+                    style: GoogleFonts.inter(
+                      color: accent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: _textPri,
+                      fontSize: 23,
+                      height: 1.05,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.7,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    artist.isNotEmpty ? artist : 'Drive album',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: _textSub,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (year.isNotEmpty) _MiniInfoPill(label: year, accent: accent),
+                      if (genre.isNotEmpty) _MiniInfoPill(label: genre, accent: accent),
+                      if (trackCount.isNotEmpty) _MiniInfoPill(label: '$trackCount tracks', accent: accent),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniInfoPill extends StatelessWidget {
+  final String label;
+  final Color accent;
+
+  const _MiniInfoPill({required this.label, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withOpacity(0.18)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.inter(
+          color: _textPri,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+
+
+class _RecentTrackPill extends StatelessWidget {
+  final Map<String, String> item;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _RecentTrackPill({
+    required this.item,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = item['title'] ?? 'Unknown';
+    final artist = item['artist'] ?? 'Unknown Artist';
+    final cover = item['cover'] ?? '';
+    final albumName = item['albumName'] ?? title;
+    final gradient = getAlbumGradient(albumName);
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: GlassyContainer(
+        radius: 22,
+        padding: const EdgeInsets.all(10),
+        customColor: Colors.white.withOpacity(0.070),
+        customBorder: Colors.white.withOpacity(0.10),
+        child: SizedBox(
+          width: 260,
+          child: Row(
+            children: [
+              Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(colors: gradient),
+                ),
+                child: cover.isNotEmpty
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: _coverImage(
+                          cover,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+                            name: albumName,
+                            colors: gradient,
+                            radius: 16,
+                            small: true,
+                          ),
+                        ),
+                      )
+                    : _AlbumFallbackCover(name: albumName, colors: gradient, radius: 16, small: true),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        color: _textPri,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        color: _textSub,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: accent.withOpacity(0.85)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscoveryCard extends StatelessWidget {
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _DiscoveryCard({required this.accent, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: GlassyContainer(
+        radius: 26,
+        padding: const EdgeInsets.all(16),
+        customColor: Colors.white.withOpacity(0.070),
+        customBorder: accent.withOpacity(0.18),
+        child: Row(
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: accent.withOpacity(0.16),
+              ),
+              child: Icon(Icons.casino_rounded, color: accent, size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Play something forgotten',
+                    style: GoogleFonts.inter(
+                      color: _textPri,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Shuffle from your Drive library when you do not know what to pick.',
+                    style: GoogleFonts.inter(
+                      color: _textSub,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.play_arrow_rounded, color: _textPri, size: 28),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ArtistChip extends StatelessWidget {
+  final String name;
+  final String count;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _ArtistChip({
+    required this.name,
+    required this.count,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          color: Colors.white.withOpacity(0.075),
+          border: Border.all(color: accent.withOpacity(0.16)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.person_rounded, color: accent, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              name,
+              style: GoogleFonts.inter(
+                color: _textPri,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(width: 7),
+            Text(
+              count,
+              style: GoogleFonts.inter(
+                color: _textSub,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AlbumGridCard extends StatelessWidget {
+  final Key? key;
+  final Map<String, String> album;
+  final VoidCallback onTap;
+  final bool isDarkMode;
+
+  const _AlbumGridCard({this.key, required this.album, required this.onTap, required this.isDarkMode}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final name = album['displayName'] ?? album['name'] ?? 'Album';
+    final artist = album['artist'] ?? '';
+    final year = album['year'] ?? '';
+    final genre = album['genre'] ?? '';
+    final coverUrl = album['cover'] ?? '';
+    final gradient = getAlbumGradient(name);
+    
+    final glowColor = isDarkMode ? Colors.white : _neonMagenta;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: GlassyContainer(
+        radius: 22,
+        padding: const EdgeInsets.all(12),
+        customColor: (isDarkMode ? _darkBg : _lightBg).withOpacity(0.065),
+        customBorder: glowColor.withOpacity(0.10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                  child: Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: gradient,
+                      ),
+                      border: Border.all(color: glowColor.withOpacity(0.15), width: 1),
+                    ),
+                    child: coverUrl.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: _coverImage(
+                              coverUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+                                name: name,
+                                colors: gradient,
+                                radius: 18,
+                              ),
+                            ),
+                          )
+                        : _AlbumFallbackCover(name: name, colors: gradient, radius: 18),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
+                color: glowColor,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              artist.isNotEmpty
+                  ? artist
+                  : year.isNotEmpty
+                      ? year
+                      : genre.isNotEmpty
+                          ? genre
+                          : 'Album',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(color: glowColor.withOpacity(0.7), fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Album Fallback Cover ───────────────────────────────────────────────────
+class _AlbumFallbackCover extends StatelessWidget {
+  final String name;
+  final List<Color> colors;
+  final double radius;
+  final bool small;
+
+  const _AlbumFallbackCover({
+    required this.name,
+    required this.colors,
+    required this.radius,
+    this.small = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final safe = _safeColors(colors);
+    final letter = name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : '?';
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: safe,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          letter,
+          style: GoogleFonts.inter(
+            fontSize: small ? 24 : 54,
+            fontWeight: FontWeight.w900,
+            color: Colors.white.withOpacity(0.52),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Track Tile ─────────────────────────────────────────────────────────────
+class _TrackGlassTile extends StatefulWidget {
+  final Key? key;
+  final drive.File track;
+  final List<drive.File> queue;
+  final int index;
+  final String? coverUrl;
+  final String? durationText;
+  final VoidCallback onTap;
+  final bool isDarkMode;
+
+  const _TrackGlassTile({
+    this.key,
+    required this.track,
+    required this.queue,
+    required this.index,
+    this.coverUrl,
+    this.durationText,
+    required this.onTap,
+    required this.isDarkMode,
+  }) : super(key: key);
+
+  @override
+  State<_TrackGlassTile> createState() => _TrackGlassTileState();
+}
+
+class _TrackGlassTileState extends State<_TrackGlassTile> with SingleTickerProviderStateMixin {
+  late final AnimationController _tapController;
+  late final Animation<double> _scaleAnim;
+  bool _tapped = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tapController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+    );
+    _scaleAnim = Tween<double>(begin: 1.0, end: 0.96).animate(
+      CurvedAnimation(parent: _tapController, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _tapController.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    HapticFeedback.lightImpact();
+    setState(() => _tapped = true);
+    _tapController.forward().then((_) {
+      _tapController.reverse();
+    });
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _nowPlaying,
+      builder: (ctx, _) {
+        final activeId = _nowPlaying.track == null ? null : DriveUtils.effectiveId(_nowPlaying.track!);
+        final isActive = activeId != null && activeId == DriveUtils.effectiveId(widget.track);
+        final meta = DriveUtils.getTrackMeta(widget.track);
+        final colors = _safeColors(_nowPlaying.dynamicColors);
+        final glowColor = _neonMagenta;
+        final titleColor = widget.isDarkMode ? Colors.white : glowColor;
+
+        return ScaleTransition(
+          scale: _scaleAnim,
+          child: GestureDetector(
+            onTap: _handleTap,
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.only(bottom: 8, left: 16, right: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: isActive
+                    ? glowColor.withOpacity(0.08)
+                    : _tapped
+                        ? glowColor.withOpacity(0.04)
+                        : Colors.white.withOpacity(0.03),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isActive ? glowColor.withOpacity(0.25) : Colors.transparent,
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: isActive ? glowColor.withOpacity(0.20) : _glassWhite,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: (widget.coverUrl != null && widget.coverUrl!.isNotEmpty)
+                          ? _coverImage(
+                              widget.coverUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _TrackIcon(isActive: isActive, colors: colors),
+                            )
+                          : _TrackIcon(isActive: isActive, colors: colors),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 200),
+                          style: GoogleFonts.inter(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: titleColor,
+                          ),
+                          child: Text(
+                            meta['title']!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          meta['artist']!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(fontSize: 12, color: _textSub),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  if ((widget.durationText ?? '').isNotEmpty)
+                    Text(
+                      widget.durationText!,
+                      style: GoogleFonts.inter(
+                        color: isActive ? glowColor : _textSub,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    )
+                  else
+                    const Icon(Icons.more_horiz_rounded, color: _textSub, size: 22),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AlbumActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color accent;
+  final VoidCallback onTap;
+  final bool primary;
+
+  const _AlbumActionButton({
+    required this.icon,
+    required this.label,
+    required this.accent,
+    required this.onTap,
+    this.primary = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = primary ? accent : Colors.white.withOpacity(0.080);
+    final fg = primary ? Colors.black : accent;
+    final border = primary ? Colors.transparent : accent.withOpacity(0.3);
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: border),
+          boxShadow: primary
+              ? [
+                  BoxShadow(
+                    color: accent.withOpacity(0.24),
+                    blurRadius: 22,
+                    offset: const Offset(0, 10),
+                  ),
+                ]
+              : const [],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: fg, size: 21),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                color: fg,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+class _TrackIcon extends StatelessWidget {
+  final bool isActive;
+  final List<Color> colors;
+
+  const _TrackIcon({required this.isActive, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Icon(
+        isActive ? Icons.graphic_eq_rounded : Icons.music_note_rounded,
+        color: isActive ? Colors.white.withOpacity(0.92) : _textSub,
+        size: isActive ? 22 : 19,
+      ),
+    );
+  }
+}
+
+// ─── Nav Bar Item ───────────────────────────────────────────────────────────
+class _NavBarItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color accent;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _NavBarItem({
+    required this.icon,
+    required this.label,
+    required this.accent,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Semantics(
+        label: label,
+        selected: isSelected,
+        button: true,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 130),
+          curve: Curves.linear,
+          width: 58,
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.10),
+              width: 1,
+            ),
+          ),
+          child: Icon(
+            icon,
+            color: isSelected ? accent : accent.withOpacity(0.60),
+            size: 24,
+          ),
+        ),
+      ),
+    );
+  }
+}
