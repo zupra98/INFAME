@@ -667,6 +667,29 @@ void _saveMetadataProgressSnapshot(Map<String, dynamic> payload) {
   });
 }
 
+int? _validDurationMsFromBackgroundValue(Object? value) {
+  int? parsed;
+  if (value is int) {
+    parsed = value;
+  } else if (value is num) {
+    parsed = value.toInt();
+  } else if (value is String) {
+    parsed = int.tryParse(value.trim());
+  }
+
+  if (parsed == null || parsed <= 0 || parsed >= 86400000) return null;
+  return parsed;
+}
+
+void _sendAlbumCoverFoundBackground(String albumId, String coverPath) {
+  if (albumId.trim().isEmpty || coverPath.trim().isEmpty) return;
+  FlutterForegroundTask.sendDataToMain({
+    'type': 'album_cover_found',
+    'albumId': albumId,
+    'coverPath': coverPath,
+  });
+}
+
 @pragma('vm:entry-point')
 void metadataScanStartCallback() {
   FlutterForegroundTask.setTaskHandler(MetadataScanTaskHandler());
@@ -814,8 +837,27 @@ class MetadataScanTaskHandler extends TaskHandler {
         }
       }
 
+      // Load durations map to check for missing durations
+      final prefs = await SharedPreferences.getInstance();
+      final durationsRaw = prefs.getString(_knownTrackDurationsPrefsKey);
+      final Map<String, dynamic> durations = (durationsRaw != null && durationsRaw.isNotEmpty)
+          ? Map<String, dynamic>.from(json.decode(durationsRaw) as Map)
+          : <String, dynamic>{};
+
       final missing = uniqueTracks.values
-          .where((track) => _metaStore.peekFresh(track) == null)
+          .where((track) {
+            final fileId = DriveUtils.effectiveId(track);
+            if (fileId == null) return false;
+            
+            // Check if metadata is missing
+            final metadataMissing = _metaStore.peekFresh(track) == null;
+            
+            // Check if duration is missing. Some older cache payloads may
+            // contain strings, so parse defensively instead of casting.
+            final durationMissing = _validDurationMsFromBackgroundValue(durations[fileId]) == null;
+
+            return metadataMissing || durationMissing;
+          })
           .toList()
         ..sort((a, b) => (a.name ?? '').compareTo(b.name ?? ''));
 
@@ -867,6 +909,7 @@ class MetadataScanTaskHandler extends TaskHandler {
         if (_isLocalCover(currentCover)) {
           final tracks = albumTracks[albumId] ?? <drive.File>[];
           _applyAlbumCoverPathToTrackCacheBackground(tracks, currentCover);
+          _sendAlbumCoverFoundBackground(albumId, currentCover);
           continue;
         }
 
@@ -880,28 +923,29 @@ class MetadataScanTaskHandler extends TaskHandler {
         if (cachedCover != null) {
           album['cover'] = cachedCover;
           _applyAlbumCoverPathToTrackCacheBackground(tracks, cachedCover);
+          _sendAlbumCoverFoundBackground(albumId, cachedCover);
           continue;
         }
 
-        // Default behavior: one embedded-cover probe per album. Different
-        // per-song covers are rare, so scanning every track is wasted Drive
-        // traffic and makes big libraries feel slow.
-        final representativeTrack = tracks.first;
-        final result = await FastTagReader.read(
-          file: representativeTrack,
-          token: token,
-          readCover: true,
-        );
-
-        if (result?.coverBytes != null) {
-          final coverPath = await _saveEmbeddedCoverBackground(
-            representativeTrack,
-            result!.coverBytes!,
+        // Match the single-album cover behavior: probe a handful of tracks,
+        // because some albums only have embedded art on track 2/3/etc.
+        for (final coverTrack in tracks.take(8)) {
+          final result = await FastTagReader.read(
+            file: coverTrack,
+            token: token,
+            readCover: true,
           );
-          if (coverPath != null) {
-            album['cover'] = coverPath;
-            _applyAlbumCoverPathToTrackCacheBackground(tracks, coverPath);
-          }
+
+          final bytes = result?.coverBytes;
+          if (bytes == null || bytes.isEmpty) continue;
+
+          final coverPath = await _saveEmbeddedCoverBackground(coverTrack, bytes);
+          if (coverPath == null || coverPath.isEmpty) continue;
+
+          album['cover'] = coverPath;
+          _applyAlbumCoverPathToTrackCacheBackground(tracks, coverPath);
+          _sendAlbumCoverFoundBackground(albumId, coverPath);
+          break;
         }
       }
 
@@ -981,6 +1025,11 @@ class MetadataScanTaskHandler extends TaskHandler {
         readCover: false,
       );
 
+      // Duration belongs to the same metadata scan pass. Save it even if
+      // the text tags are already bad/missing so the UI gets timestamps at
+      // the same time as the rest of the scan results.
+      await _extractAndSaveDurationBackground(file, token);
+
       if (fastResult == null || !fastResult.hasUsefulText) return false;
 
       _metaStore.putMemory(
@@ -1005,6 +1054,57 @@ class MetadataScanTaskHandler extends TaskHandler {
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  Future<void> _extractAndSaveDurationBackground(drive.File file, String token) async {
+    final fileId = DriveUtils.effectiveId(file);
+    if (fileId == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+
+    Future<Map<String, dynamic>> loadDurations() async {
+      final raw = prefs.getString(_knownTrackDurationsPrefsKey);
+      if (raw == null || raw.isEmpty) return <String, dynamic>{};
+      try {
+        final decoded = json.decode(raw);
+        return decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{};
+      } catch (_) {
+        return <String, dynamic>{};
+      }
+    }
+
+    final existing = await loadDurations();
+    if (_validDurationMsFromBackgroundValue(existing[fileId]) != null) return;
+
+    final tempPlayer = AudioPlayer();
+    try {
+      final source = DriveAudioSource(fileId, token);
+
+      Duration? duration = await tempPlayer
+          .setAudioSource(source)
+          .timeout(const Duration(seconds: 10), onTimeout: () => null);
+
+      duration ??= await tempPlayer.durationStream
+          .firstWhere((value) => value != null)
+          .timeout(const Duration(seconds: 5), onTimeout: () => null);
+
+      final durationMs = _validDurationMsFromBackgroundValue(duration?.inMilliseconds);
+      if (durationMs == null) return;
+
+      final durations = await loadDurations();
+      durations[fileId] = durationMs;
+      await prefs.setString(_knownTrackDurationsPrefsKey, json.encode(durations));
+
+      FlutterForegroundTask.sendDataToMain({
+        'type': 'duration_found',
+        'fileId': fileId,
+        'durationMs': durationMs,
+      });
+    } catch (_) {
+      // Keep the metadata scan moving if one file cannot expose a duration.
+    } finally {
+      await tempPlayer.dispose();
     }
   }
 
@@ -1037,6 +1137,9 @@ class MetadataScanTaskHandler extends TaskHandler {
           size: file.size,
         ),
       );
+
+      // Extract and save duration
+      await _extractAndSaveDurationBackground(file, token);
 
       return true;
     } catch (_) {

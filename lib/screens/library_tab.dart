@@ -3,7 +3,10 @@ part of '../main.dart';
 extension BuildLibraryTabExtension on _MainScreenState {
   String _libraryAlbumTitle(Map<String, String> album) {
     final brain = _libraryBrain[album['id'] ?? ''];
-    return brain?['displayName'] ?? album['displayName'] ?? album['name'] ?? 'Album';
+    return brain?['displayName'] ??
+        album['displayName'] ??
+        album['name'] ??
+        'Album';
   }
 
   String _libraryAlbumArtist(Map<String, String> album) {
@@ -88,9 +91,57 @@ extension BuildLibraryTabExtension on _MainScreenState {
     return artists.length;
   }
 
-  Widget _buildSongsView(List<Color> colors, String query, Color bgColor) {
+  List<Map<String, String>> _cachedVisibleAlbumsForQuery(String query) {
+    final cacheKey = [
+      query,
+      _librarySortMode,
+      _libraryGridMode,
+      _libraryViewMode,
+      _albums.length,
+      _libraryTrackIndex.length,
+      _homeBrowseCacheVersion,
+      _libraryBrowseCacheVersion,
+    ].join('|');
+    if (_cachedLibraryAlbumsKey == cacheKey) return _cachedVisibleLibraryAlbums;
+
+    final visibleAlbums =
+        _albums.where((album) => _libraryAlbumMatches(album, query)).toList();
+
+    visibleAlbums.sort((a, b) {
+      final an = _libraryAlbumTitle(a).toLowerCase();
+      final bn = _libraryAlbumTitle(b).toLowerCase();
+      if (_librarySortMode == 'artist') {
+        final aa = _libraryAlbumArtist(a).toLowerCase();
+        final ba = _libraryAlbumArtist(b).toLowerCase();
+        final byArtist = aa.compareTo(ba);
+        if (byArtist != 0) return byArtist;
+      }
+      if (_librarySortMode == 'za') return bn.compareTo(an);
+      return an.compareTo(bn);
+    });
+
+    _cachedLibraryAlbumsKey = cacheKey;
+    _cachedVisibleLibraryAlbums = visibleAlbums;
+    return visibleAlbums;
+  }
+
+  ({List<Map<String, String>> records, List<drive.File> files})
+      _cachedVisibleSongsForQuery(String query) {
+    final cacheKey = [
+      query,
+      _libraryViewMode,
+      _libraryTrackIndex.length,
+      _albums.length,
+      _libraryBrowseCacheVersion,
+    ].join('|');
+    if (_cachedLibrarySongsKey == cacheKey) {
+      return (
+        records: _cachedVisibleLibrarySongs,
+        files: _cachedVisibleLibrarySongFiles,
+      );
+    }
+
     final visibleSongs = <Map<String, String>>[];
-    
     for (final record in _libraryTrackIndex.values) {
       final title = record['title'] ?? record['name'] ?? '';
       final artist = record['artist'] ?? '';
@@ -98,8 +149,9 @@ extension BuildLibraryTabExtension on _MainScreenState {
       final year = record['year'] ?? '';
       final genre = record['genre'] ?? '';
       final filename = record['name'] ?? '';
-      
-      final searchText = '$title $artist $album $year $genre $filename'.toLowerCase();
+
+      final searchText =
+          '$title $artist $album $year $genre $filename'.toLowerCase();
       if (query.isEmpty || searchText.contains(query)) {
         visibleSongs.add(record);
       }
@@ -111,9 +163,58 @@ extension BuildLibraryTabExtension on _MainScreenState {
       return at.toLowerCase().compareTo(bt.toLowerCase());
     });
 
-    final visibleSongFiles = visibleSongs.map((r) => _fileFromTrackIndexRecord(r)).toList();
+    final visibleSongFiles =
+        visibleSongs.map((r) => _fileFromTrackIndexRecord(r)).toList();
 
-    return Container(
+    _cachedLibrarySongsKey = cacheKey;
+    _cachedVisibleLibrarySongs = visibleSongs;
+    _cachedVisibleLibrarySongFiles = visibleSongFiles;
+    return (records: visibleSongs, files: visibleSongFiles);
+  }
+
+  ({Map<String, List<Map<String, String>>> grouped, List<String> names})
+      _cachedVisibleArtistsForQuery(String query) {
+    final cacheKey = [
+      query,
+      _libraryViewMode,
+      _libraryTrackIndex.length,
+      _libraryBrowseCacheVersion,
+    ].join('|');
+    if (_cachedLibraryArtistsKey == cacheKey) {
+      return (
+        grouped: _cachedLibraryArtists,
+        names: _cachedVisibleLibraryArtists
+      );
+    }
+
+    final artists = <String, List<Map<String, String>>>{};
+    for (final record in _libraryTrackIndex.values) {
+      final artist = record['artist'] ?? '';
+      if (artist.isEmpty) continue;
+      artists.putIfAbsent(artist, () => []);
+      artists[artist]!.add(record);
+    }
+
+    final artistNames = artists.keys.toList();
+    final visibleArtists = artistNames
+        .where(
+            (artist) => query.isEmpty || artist.toLowerCase().contains(query))
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    _cachedLibraryArtistsKey = cacheKey;
+    _cachedLibraryArtists = artists;
+    _cachedVisibleLibraryArtists = visibleArtists;
+    return (grouped: artists, names: visibleArtists);
+  }
+
+  Widget _buildSongsView(List<Color> colors, String query, Color bgColor) {
+    final visibleSongsCache = _cachedVisibleSongsForQuery(query);
+    final visibleSongs = visibleSongsCache.records;
+    final visibleSongFiles = visibleSongsCache.files;
+
+    return RepaintBoundary(
+        child: Container(
       color: bgColor,
       child: CustomScrollView(
         key: const PageStorageKey('library_songs_scroll'),
@@ -127,7 +228,9 @@ extension BuildLibraryTabExtension on _MainScreenState {
                 children: [
                   Row(
                     children: [
-                      Expanded(child: _buildGradientText('Songs', size: 34, spacing: -1.4)),
+                      Expanded(
+                          child: _buildGradientText('Songs',
+                              size: 34, spacing: -1.4)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -142,19 +245,24 @@ extension BuildLibraryTabExtension on _MainScreenState {
                   const SizedBox(height: 16),
                   GlassyContainer(
                     radius: 26,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                     customColor: Colors.white.withOpacity(0.078),
                     customBorder: Colors.white.withOpacity(0.13),
                     child: TextField(
                       controller: _librarySearchController,
-                      onChanged: (value) => setState(() => _libraryQuery = value),
-                      style: GoogleFonts.inter(color: _textPri, fontWeight: FontWeight.w800),
+                      onChanged: (value) =>
+                          setState(() => _libraryQuery = value),
+                      style: GoogleFonts.inter(
+                          color: _textPri, fontWeight: FontWeight.w800),
                       decoration: InputDecoration(
                         border: InputBorder.none,
-                        icon: Icon(Icons.manage_search_rounded, color: colors[1]),
+                        icon:
+                            Icon(Icons.manage_search_rounded, color: colors[1]),
                         suffixIcon: _libraryQuery.trim().isNotEmpty
                             ? IconButton(
-                                icon: const Icon(Icons.close_rounded, color: _textSub),
+                                icon: const Icon(Icons.close_rounded,
+                                    color: _textSub),
                                 onPressed: () {
                                   _librarySearchController.clear();
                                   setState(() => _libraryQuery = '');
@@ -162,7 +270,8 @@ extension BuildLibraryTabExtension on _MainScreenState {
                               )
                             : null,
                         hintText: 'Search songs by title, artist, album...',
-                        hintStyle: GoogleFonts.inter(color: _textSub, fontWeight: FontWeight.w700),
+                        hintStyle: GoogleFonts.inter(
+                            color: _textSub, fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),
@@ -202,12 +311,19 @@ extension BuildLibraryTabExtension on _MainScreenState {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _LibraryInfoChip(label: '${visibleSongs.length} songs', accent: colors[1]),
-                      _LibraryInfoChip(label: '${_libraryTrackIndex.length} indexed', accent: colors[2]),
+                      _LibraryInfoChip(
+                          label: '${visibleSongs.length} songs',
+                          accent: colors[1]),
+                      _LibraryInfoChip(
+                          label: '${_libraryTrackIndex.length} indexed',
+                          accent: colors[2]),
+                      _LibraryInfoChip(
+                          label: '${_albums.length} albums', accent: colors[0]),
                       if (_libraryQuery.trim().isNotEmpty)
                         GestureDetector(
                           onTap: () => setState(() => _libraryQuery = ''),
-                          child: _LibraryInfoChip(label: 'Clear search ×', accent: _pink),
+                          child: _LibraryInfoChip(
+                              label: 'Clear search ×', accent: _pink),
                         ),
                     ],
                   ),
@@ -223,12 +339,25 @@ extension BuildLibraryTabExtension on _MainScreenState {
                   children: [
                     Text(
                       'Song index is empty.',
-                      style: GoogleFonts.inter(color: _textPri, fontWeight: FontWeight.w900),
+                      style: GoogleFonts.inter(
+                          color: _textPri, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Indexed songs: ${_libraryTrackIndex.length}',
+                      style: GoogleFonts.inter(
+                          color: _textSub, fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      'Albums in library: ${_albums.length}',
+                      style: GoogleFonts.inter(
+                          color: _textSub, fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Open albums or run Library metadata scan to build the song list.',
-                      style: GoogleFonts.inter(color: _textSub, fontWeight: FontWeight.w700),
+                      style: GoogleFonts.inter(
+                          color: _textSub, fontWeight: FontWeight.w700),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 16),
@@ -237,10 +366,14 @@ extension BuildLibraryTabExtension on _MainScreenState {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: colors[1],
                         foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999)),
                       ),
-                      child: Text('Build Song Index', style: GoogleFonts.inter(fontWeight: FontWeight.w900)),
+                      child: Text('Build Song Index',
+                          style:
+                              GoogleFonts.inter(fontWeight: FontWeight.w900)),
                     ),
                   ],
                 ),
@@ -254,12 +387,15 @@ extension BuildLibraryTabExtension on _MainScreenState {
                   children: [
                     Text(
                       'No songs match that search.',
-                      style: GoogleFonts.inter(color: _textPri, fontWeight: FontWeight.w900),
+                      style: GoogleFonts.inter(
+                          color: _textPri, fontWeight: FontWeight.w900),
                     ),
                     const SizedBox(height: 10),
                     TextButton(
                       onPressed: () => setState(() => _libraryQuery = ''),
-                      child: Text('Clear search', style: GoogleFonts.inter(color: colors[1], fontWeight: FontWeight.w900)),
+                      child: Text('Clear search',
+                          style: GoogleFonts.inter(
+                              color: colors[1], fontWeight: FontWeight.w900)),
                     ),
                   ],
                 ),
@@ -276,7 +412,14 @@ extension BuildLibraryTabExtension on _MainScreenState {
                   final artist = record['artist'] ?? '';
                   final album = record['albumName'] ?? '';
                   final coverUrl = record['albumCover'] ?? '';
-                  final duration = _knownTrackDurations[file.id];
+                  final durationMsStr = record['durationMs'];
+                  final durationMs =
+                      durationMsStr != null && durationMsStr.isNotEmpty
+                          ? int.tryParse(durationMsStr)
+                          : null;
+                  final duration = durationMs != null && durationMs > 0
+                      ? Duration(milliseconds: durationMs)
+                      : _knownTrackDurations[file.id];
 
                   return GestureDetector(
                     key: ValueKey(record['id']),
@@ -300,7 +443,8 @@ extension BuildLibraryTabExtension on _MainScreenState {
                             width: 48,
                             height: 48,
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius:
+                                  BorderRadius.circular(kArtworkRadius),
                               gradient: LinearGradient(
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
@@ -309,14 +453,16 @@ extension BuildLibraryTabExtension on _MainScreenState {
                             ),
                             child: coverUrl.isNotEmpty
                                 ? ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius:
+                                        BorderRadius.circular(kArtworkRadius),
                                     child: _coverImage(
                                       coverUrl,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+                                      errorBuilder: (_, __, ___) =>
+                                          _AlbumFallbackCover(
                                         name: album,
                                         colors: colors,
-                                        radius: 12,
+                                        radius: kArtworkRadius,
                                         small: true,
                                       ),
                                     ),
@@ -324,7 +470,7 @@ extension BuildLibraryTabExtension on _MainScreenState {
                                 : _AlbumFallbackCover(
                                     name: album,
                                     colors: colors,
-                                    radius: 12,
+                                    radius: kArtworkRadius,
                                     small: true,
                                   ),
                           ),
@@ -348,7 +494,10 @@ extension BuildLibraryTabExtension on _MainScreenState {
                                   artist.isNotEmpty ? artist : album,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: GoogleFonts.inter(fontSize: 12, color: _textSub, fontWeight: FontWeight.w700),
+                                  style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: _textSub,
+                                      fontWeight: FontWeight.w700),
                                 ),
                               ],
                             ),
@@ -356,10 +505,59 @@ extension BuildLibraryTabExtension on _MainScreenState {
                           if (duration != null)
                             Text(
                               '${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}',
-                              style: GoogleFonts.inter(fontSize: 11, color: _textSub, fontWeight: FontWeight.w700),
+                              style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  color: _textSub,
+                                  fontWeight: FontWeight.w700),
                             ),
                           const SizedBox(width: 8),
-                          const Icon(Icons.play_arrow_rounded, color: _textSub, size: 20),
+                          PopupMenuButton<int>(
+                            tooltip: 'Track options',
+                            icon: const Icon(Icons.more_vert_rounded,
+                                color: _textSub, size: 20),
+                            padding: EdgeInsets.zero,
+                            splashRadius: 20,
+                            color: const Color(0xFF1A1A22),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16)),
+                            onSelected: (value) {
+                              if (value == 1) {
+                                _addTracksPlayNext([file]);
+                              } else if (value == 2) {
+                                _addTracksToQueueEnd([file]);
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              PopupMenuItem<int>(
+                                value: 1,
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.play_arrow_rounded,
+                                        size: 18, color: _textPri),
+                                    const SizedBox(width: 10),
+                                    Text('Play Next',
+                                        style: GoogleFonts.inter(
+                                            color: _textPri,
+                                            fontWeight: FontWeight.w700)),
+                                  ],
+                                ),
+                              ),
+                              PopupMenuItem<int>(
+                                value: 2,
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.queue_music_rounded,
+                                        size: 18, color: _textPri),
+                                    const SizedBox(width: 10),
+                                    Text('Add to Queue',
+                                        style: GoogleFonts.inter(
+                                            color: _textPri,
+                                            fontWeight: FontWeight.w700)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -372,24 +570,16 @@ extension BuildLibraryTabExtension on _MainScreenState {
           ),
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildArtistsView(List<Color> colors, String query, Color bgColor) {
-    final artists = <String, List<Map<String, String>>>{};
-    
-    for (final record in _libraryTrackIndex.values) {
-      final artist = record['artist'] ?? '';
-      if (artist.isEmpty) continue;
-      artists.putIfAbsent(artist, () => []);
-      artists[artist]!.add(record);
-    }
+    final artistsCache = _cachedVisibleArtistsForQuery(query);
+    final artists = artistsCache.grouped;
+    final visibleArtists = artistsCache.names;
 
-    final artistNames = artists.keys.toList();
-    final visibleArtists = artistNames.where((artist) => query.isEmpty || artist.toLowerCase().contains(query)).toList();
-    visibleArtists.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-    return Container(
+    return RepaintBoundary(
+        child: Container(
       color: bgColor,
       child: CustomScrollView(
         key: const PageStorageKey('library_artists_scroll'),
@@ -403,7 +593,9 @@ extension BuildLibraryTabExtension on _MainScreenState {
                 children: [
                   Row(
                     children: [
-                      Expanded(child: _buildGradientText('Artists', size: 34, spacing: -1.4)),
+                      Expanded(
+                          child: _buildGradientText('Artists',
+                              size: 34, spacing: -1.4)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -418,19 +610,24 @@ extension BuildLibraryTabExtension on _MainScreenState {
                   const SizedBox(height: 16),
                   GlassyContainer(
                     radius: 26,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                     customColor: Colors.white.withOpacity(0.078),
                     customBorder: Colors.white.withOpacity(0.13),
                     child: TextField(
                       controller: _librarySearchController,
-                      onChanged: (value) => setState(() => _libraryQuery = value),
-                      style: GoogleFonts.inter(color: _textPri, fontWeight: FontWeight.w800),
+                      onChanged: (value) =>
+                          setState(() => _libraryQuery = value),
+                      style: GoogleFonts.inter(
+                          color: _textPri, fontWeight: FontWeight.w800),
                       decoration: InputDecoration(
                         border: InputBorder.none,
-                        icon: Icon(Icons.manage_search_rounded, color: colors[1]),
+                        icon:
+                            Icon(Icons.manage_search_rounded, color: colors[1]),
                         suffixIcon: _libraryQuery.trim().isNotEmpty
                             ? IconButton(
-                                icon: const Icon(Icons.close_rounded, color: _textSub),
+                                icon: const Icon(Icons.close_rounded,
+                                    color: _textSub),
                                 onPressed: () {
                                   _librarySearchController.clear();
                                   setState(() => _libraryQuery = '');
@@ -438,7 +635,8 @@ extension BuildLibraryTabExtension on _MainScreenState {
                               )
                             : null,
                         hintText: 'Search artists...',
-                        hintStyle: GoogleFonts.inter(color: _textSub, fontWeight: FontWeight.w700),
+                        hintStyle: GoogleFonts.inter(
+                            color: _textSub, fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),
@@ -478,12 +676,16 @@ extension BuildLibraryTabExtension on _MainScreenState {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _LibraryInfoChip(label: '${visibleArtists.length} artists', accent: colors[1]),
-                      _LibraryInfoChip(label: '${artists.length} total', accent: colors[2]),
+                      _LibraryInfoChip(
+                          label: '${visibleArtists.length} artists',
+                          accent: colors[1]),
+                      _LibraryInfoChip(
+                          label: '${artists.length} total', accent: colors[2]),
                       if (_libraryQuery.trim().isNotEmpty)
                         GestureDetector(
                           onTap: () => setState(() => _libraryQuery = ''),
-                          child: _LibraryInfoChip(label: 'Clear search ×', accent: _pink),
+                          child: _LibraryInfoChip(
+                              label: 'Clear search ×', accent: _pink),
                         ),
                     ],
                   ),
@@ -499,12 +701,25 @@ extension BuildLibraryTabExtension on _MainScreenState {
                   children: [
                     Text(
                       'Song index is empty.',
-                      style: GoogleFonts.inter(color: _textPri, fontWeight: FontWeight.w900),
+                      style: GoogleFonts.inter(
+                          color: _textPri, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Indexed songs: ${_libraryTrackIndex.length}',
+                      style: GoogleFonts.inter(
+                          color: _textSub, fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      'Albums in library: ${_albums.length}',
+                      style: GoogleFonts.inter(
+                          color: _textSub, fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Open albums or run Library metadata scan to build the song list.',
-                      style: GoogleFonts.inter(color: _textSub, fontWeight: FontWeight.w700),
+                      style: GoogleFonts.inter(
+                          color: _textSub, fontWeight: FontWeight.w700),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 16),
@@ -513,10 +728,14 @@ extension BuildLibraryTabExtension on _MainScreenState {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: colors[1],
                         foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999)),
                       ),
-                      child: Text('Build Song Index', style: GoogleFonts.inter(fontWeight: FontWeight.w900)),
+                      child: Text('Build Song Index',
+                          style:
+                              GoogleFonts.inter(fontWeight: FontWeight.w900)),
                     ),
                   ],
                 ),
@@ -530,12 +749,15 @@ extension BuildLibraryTabExtension on _MainScreenState {
                   children: [
                     Text(
                       'No artists match that search.',
-                      style: GoogleFonts.inter(color: _textPri, fontWeight: FontWeight.w900),
+                      style: GoogleFonts.inter(
+                          color: _textPri, fontWeight: FontWeight.w900),
                     ),
                     const SizedBox(height: 10),
                     TextButton(
                       onPressed: () => setState(() => _libraryQuery = ''),
-                      child: Text('Clear search', style: GoogleFonts.inter(color: colors[1], fontWeight: FontWeight.w900)),
+                      child: Text('Clear search',
+                          style: GoogleFonts.inter(
+                              color: colors[1], fontWeight: FontWeight.w900)),
                     ),
                   ],
                 ),
@@ -607,12 +829,16 @@ extension BuildLibraryTabExtension on _MainScreenState {
                                 const SizedBox(height: 4),
                                 Text(
                                   '$songCount songs • $albumCount albums',
-                                  style: GoogleFonts.inter(fontSize: 12, color: _textSub, fontWeight: FontWeight.w700),
+                                  style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: _textSub,
+                                      fontWeight: FontWeight.w700),
                                 ),
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right_rounded, color: _textSub),
+                          const Icon(Icons.chevron_right_rounded,
+                              color: _textSub),
                         ],
                       ),
                     ),
@@ -625,38 +851,38 @@ extension BuildLibraryTabExtension on _MainScreenState {
           ),
         ],
       ),
-    );
+    ));
   }
 
   Widget buildLibraryTab() {
+    final stopwatch = Stopwatch()..start();
     final colors = _safeColors(_currentDynamicColors);
     final query = _libraryQuery.trim().toLowerCase();
     final bgColor = _isDarkMode ? _darkBg : _lightBg;
 
     if (_libraryViewMode == 'songs') {
-      return _buildSongsView(colors, query, bgColor);
+      final page = _buildSongsView(colors, query, bgColor);
+      assert(() {
+        debugPrint('Library build (songs): ${stopwatch.elapsedMicroseconds}us');
+        return true;
+      }());
+      return page;
     }
 
     if (_libraryViewMode == 'artists') {
-      return _buildArtistsView(colors, query, bgColor);
+      final page = _buildArtistsView(colors, query, bgColor);
+      assert(() {
+        debugPrint(
+            'Library build (artists): ${stopwatch.elapsedMicroseconds}us');
+        return true;
+      }());
+      return page;
     }
 
-    final visibleAlbums = _albums.where((album) => _libraryAlbumMatches(album, query)).toList();
+    final visibleAlbums = _cachedVisibleAlbumsForQuery(query);
 
-    visibleAlbums.sort((a, b) {
-      final an = _libraryAlbumTitle(a).toLowerCase();
-      final bn = _libraryAlbumTitle(b).toLowerCase();
-      if (_librarySortMode == 'artist') {
-        final aa = _libraryAlbumArtist(a).toLowerCase();
-        final ba = _libraryAlbumArtist(b).toLowerCase();
-        final byArtist = aa.compareTo(ba);
-        if (byArtist != 0) return byArtist;
-      }
-      if (_librarySortMode == 'za') return bn.compareTo(an);
-      return an.compareTo(bn);
-    });
-
-    return Container(
+    final page = RepaintBoundary(
+        child: Container(
       color: bgColor,
       child: CustomScrollView(
         key: const PageStorageKey('library_tab_scroll'),
@@ -670,282 +896,326 @@ extension BuildLibraryTabExtension on _MainScreenState {
                 children: [
                   Row(
                     children: [
-                      Expanded(child: _buildGradientText('Crates', size: 34, spacing: -1.4)),
-                    IconButton(
-                      tooltip: _libraryGridMode ? 'List view' : 'Grid view',
-                      icon: Icon(
-                        _libraryGridMode ? Icons.view_list_rounded : Icons.grid_view_rounded,
-                        color: _textSub,
+                      Expanded(
+                          child: _buildGradientText('Crates',
+                              size: 34, spacing: -1.4)),
+                      IconButton(
+                        tooltip: _libraryGridMode ? 'List view' : 'Grid view',
+                        icon: Icon(
+                          _libraryGridMode
+                              ? Icons.view_list_rounded
+                              : Icons.grid_view_rounded,
+                          color: _textSub,
+                        ),
+                        onPressed: () => setState(
+                            () => _libraryGridMode = !_libraryGridMode),
                       ),
-                      onPressed: () => setState(() => _libraryGridMode = !_libraryGridMode),
-                    ),
-                    PopupMenuButton<String>(
-                      tooltip: 'Sort library',
-                      icon: const Icon(Icons.sort_rounded, color: _textSub),
-                      color: const Color(0xFF1A1A22),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                      onSelected: (value) => setState(() => _librarySortMode = value),
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: 'az',
-                          child: Text('Album A–Z', style: GoogleFonts.inter(color: _textPri)),
-                        ),
-                        PopupMenuItem(
-                          value: 'za',
-                          child: Text('Album Z–A', style: GoogleFonts.inter(color: _textPri)),
-                        ),
-                        PopupMenuItem(
-                          value: 'artist',
-                          child: Text('Artist A–Z', style: GoogleFonts.inter(color: _textPri)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Search albums, artists, songs, years — all in one place.',
-                  style: GoogleFonts.inter(
-                    color: _textSub,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                GlassyContainer(
-                  radius: 26,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                  customColor: Colors.white.withOpacity(0.078),
-                  customBorder: Colors.white.withOpacity(0.13),
-                  child: TextField(
-                    controller: _librarySearchController,
-                    onChanged: (value) => setState(() => _libraryQuery = value),
-                    style: GoogleFonts.inter(color: _textPri, fontWeight: FontWeight.w800),
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      icon: Icon(Icons.manage_search_rounded, color: colors[1]),
-                      suffixIcon: _libraryQuery.trim().isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.close_rounded, color: _textSub),
-                              onPressed: () {
-                                _librarySearchController.clear();
-                                setState(() => _libraryQuery = '');
-                              },
-                            )
-                          : null,
-                      hintText: 'Search Nas, Illmatic, track names...',
-                      hintStyle: GoogleFonts.inter(color: _textSub, fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _LibraryModePill(
-                      label: 'Albums',
-                      isSelected: _libraryViewMode == 'albums',
-                      onTap: () {
-                        setState(() => _libraryViewMode = 'albums');
-                        _saveUiPreferences();
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    _LibraryModePill(
-                      label: 'Songs',
-                      isSelected: _libraryViewMode == 'songs',
-                      onTap: () {
-                        setState(() => _libraryViewMode = 'songs');
-                        _saveUiPreferences();
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    _LibraryModePill(
-                      label: 'Artists',
-                      isSelected: _libraryViewMode == 'artists',
-                      onTap: () {
-                        setState(() => _libraryViewMode = 'artists');
-                        _saveUiPreferences();
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _LibraryInfoChip(label: '${visibleAlbums.length}/${_albums.length} albums', accent: colors[1]),
-                    _LibraryInfoChip(label: '${_visibleArtistCount()} artists', accent: colors[2]),
-                    _LibraryInfoChip(label: '${_metaStore.count} tagged tracks', accent: colors[0]),
-                    if (_libraryQuery.trim().isNotEmpty)
-                      GestureDetector(
-                        onTap: () => setState(() => _libraryQuery = ''),
-                        child: _LibraryInfoChip(label: 'Clear search ×', accent: _pink),
+                      PopupMenuButton<String>(
+                        tooltip: 'Sort library',
+                        icon: const Icon(Icons.sort_rounded, color: _textSub),
+                        color: const Color(0xFF1A1A22),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18)),
+                        onSelected: (value) =>
+                            setState(() => _librarySortMode = value),
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            value: 'az',
+                            child: Text('Album A–Z',
+                                style: GoogleFonts.inter(color: _textPri)),
+                          ),
+                          PopupMenuItem(
+                            value: 'za',
+                            child: Text('Album Z–A',
+                                style: GoogleFonts.inter(color: _textPri)),
+                          ),
+                          PopupMenuItem(
+                            value: 'artist',
+                            child: Text('Artist A–Z',
+                                style: GoogleFonts.inter(color: _textPri)),
+                          ),
+                        ],
                       ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (_loadingSaved || _isScanning)
-          const SliverFillRemaining(
-            child: Center(child: CircularProgressIndicator(color: _accentDefault)),
-          )
-        else if (_albums.isEmpty)
-          const SliverFillRemaining(
-            child: Center(child: Text('Library is empty.', style: TextStyle(color: _textSub))),
-          )
-        else if (visibleAlbums.isEmpty)
-          SliverFillRemaining(
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                   Text(
-                    'No records match that search.',
-                    style: GoogleFonts.inter(color: _textPri, fontWeight: FontWeight.w900),
+                    'Search albums, artists, songs, years — all in one place.',
+                    style: GoogleFonts.inter(
+                      color: _textSub,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                  const SizedBox(height: 10),
-                  TextButton(
-                    onPressed: () => setState(() => _libraryQuery = ''),
-                    child: Text('Clear search', style: GoogleFonts.inter(color: colors[1], fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 16),
+                  GlassyContainer(
+                    radius: 26,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                    customColor: Colors.white.withOpacity(0.078),
+                    customBorder: Colors.white.withOpacity(0.13),
+                    child: TextField(
+                      controller: _librarySearchController,
+                      onChanged: (value) =>
+                          setState(() => _libraryQuery = value),
+                      style: GoogleFonts.inter(
+                          color: _textPri, fontWeight: FontWeight.w800),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        icon:
+                            Icon(Icons.manage_search_rounded, color: colors[1]),
+                        suffixIcon: _libraryQuery.trim().isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.close_rounded,
+                                    color: _textSub),
+                                onPressed: () {
+                                  _librarySearchController.clear();
+                                  setState(() => _libraryQuery = '');
+                                },
+                              )
+                            : null,
+                        hintText: 'Search Nas, Illmatic, track names...',
+                        hintStyle: GoogleFonts.inter(
+                            color: _textSub, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _LibraryModePill(
+                        label: 'Albums',
+                        isSelected: _libraryViewMode == 'albums',
+                        onTap: () {
+                          setState(() => _libraryViewMode = 'albums');
+                          _saveUiPreferences();
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      _LibraryModePill(
+                        label: 'Songs',
+                        isSelected: _libraryViewMode == 'songs',
+                        onTap: () {
+                          setState(() => _libraryViewMode = 'songs');
+                          _saveUiPreferences();
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      _LibraryModePill(
+                        label: 'Artists',
+                        isSelected: _libraryViewMode == 'artists',
+                        onTap: () {
+                          setState(() => _libraryViewMode = 'artists');
+                          _saveUiPreferences();
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _LibraryInfoChip(
+                          label:
+                              '${visibleAlbums.length}/${_albums.length} albums',
+                          accent: colors[1]),
+                      _LibraryInfoChip(
+                          label: '${_visibleArtistCount()} artists',
+                          accent: colors[2]),
+                      _LibraryInfoChip(
+                          label: '${_metaStore.count} tagged tracks',
+                          accent: colors[0]),
+                      if (_libraryQuery.trim().isNotEmpty)
+                        GestureDetector(
+                          onTap: () => setState(() => _libraryQuery = ''),
+                          child: _LibraryInfoChip(
+                              label: 'Clear search ×', accent: _pink),
+                        ),
+                    ],
                   ),
                 ],
               ),
             ),
-          )
-        else if (_libraryGridMode)
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                childAspectRatio: 0.78,
+          ),
+          if (_loadingSaved || _isScanning)
+            const SliverFillRemaining(
+              child: Center(
+                  child: CircularProgressIndicator(color: _accentDefault)),
+            )
+          else if (_albums.isEmpty)
+            const SliverFillRemaining(
+              child: Center(
+                  child: Text('Library is empty.',
+                      style: TextStyle(color: _textSub))),
+            )
+          else if (visibleAlbums.isEmpty)
+            SliverFillRemaining(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'No records match that search.',
+                      style: GoogleFonts.inter(
+                          color: _textPri, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton(
+                      onPressed: () => setState(() => _libraryQuery = ''),
+                      child: Text('Clear search',
+                          style: GoogleFonts.inter(
+                              color: colors[1], fontWeight: FontWeight.w900)),
+                    ),
+                  ],
+                ),
               ),
-              delegate: SliverChildBuilderDelegate((ctx, i) {
-                final album = visibleAlbums[i];
-                final merged = Map<String, String>.from(album);
-                final brain = _libraryBrain[album['id'] ?? ''];
-                if (brain != null) merged.addAll(brain);
-                final folderGuess = _artistAlbumFromFolder(album['name'] ?? '');
-                merged['artist'] = _libraryAlbumArtist(album);
-                merged['displayName'] = _libraryAlbumTitle(album);
-                if ((merged['artist'] ?? '').isEmpty && folderGuess['artist'] != null) {
-                  merged['artist'] = folderGuess['artist']!;
-                }
-                return _AlbumGridCard(
-                  key: ValueKey(album['id'] ?? album['name']),
-                  album: merged,
-                  onTap: () => _openAlbum(album),
-                  isDarkMode: _isDarkMode,
-                );
-              }, childCount: visibleAlbums.length),
-            ),
-          )
-        else
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            sliver: SliverList(
-              delegate: SliverChildBuilderDelegate((ctx, i) {
-                final album = visibleAlbums[i];
-                final brain = _libraryBrain[album['id'] ?? ''];
-                final name = _libraryAlbumTitle(album);
-                final artist = _libraryAlbumArtist(album);
-                final year = brain?['year'] ?? album['year'] ?? '';
-                final genre = brain?['genre'] ?? album['genre'] ?? '';
-                final coverUrl = album['cover'] ?? brain?['cover'] ?? '';
-                final gradient = getAlbumGradient(name);
+            )
+          else if (_libraryGridMode)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 0.78,
+                ),
+                delegate: SliverChildBuilderDelegate((ctx, i) {
+                  final album = visibleAlbums[i];
+                  final merged = Map<String, String>.from(album);
+                  final brain = _libraryBrain[album['id'] ?? ''];
+                  if (brain != null) merged.addAll(brain);
+                  final folderGuess =
+                      _artistAlbumFromFolder(album['name'] ?? '');
+                  merged['artist'] = _libraryAlbumArtist(album);
+                  merged['displayName'] = _libraryAlbumTitle(album);
+                  if ((merged['artist'] ?? '').isEmpty &&
+                      folderGuess['artist'] != null) {
+                    merged['artist'] = folderGuess['artist']!;
+                  }
+                  return _AlbumGridCard(
+                    key: ValueKey(album['id'] ?? album['name']),
+                    album: merged,
+                    onTap: () => _openAlbum(album),
+                    isDarkMode: _isDarkMode,
+                  );
+                }, childCount: visibleAlbums.length),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate((ctx, i) {
+                  final album = visibleAlbums[i];
+                  final brain = _libraryBrain[album['id'] ?? ''];
+                  final name = _libraryAlbumTitle(album);
+                  final artist = _libraryAlbumArtist(album);
+                  final year = brain?['year'] ?? album['year'] ?? '';
+                  final genre = brain?['genre'] ?? album['genre'] ?? '';
+                  final coverUrl = album['cover'] ?? brain?['cover'] ?? '';
+                  final gradient = getAlbumGradient(name);
 
-                return GestureDetector(
-                  key: ValueKey(album['id'] ?? album['name']),
-                  onTap: () => _openAlbum(album),
-                  behavior: HitTestBehavior.opaque,
-                  child: GlassyContainer(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(12),
-                    radius: 20,
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 58,
-                          height: 58,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: gradient,
+                  return GestureDetector(
+                    key: ValueKey(album['id'] ?? album['name']),
+                    onTap: () => _openAlbum(album),
+                    behavior: HitTestBehavior.opaque,
+                    child: GlassyContainer(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      radius: 20,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 58,
+                            height: 58,
+                            decoration: BoxDecoration(
+                              borderRadius:
+                                  BorderRadius.circular(kArtworkRadius),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: gradient,
+                              ),
+                            ),
+                            child: coverUrl.isNotEmpty
+                                ? ClipRRect(
+                                    borderRadius:
+                                        BorderRadius.circular(kArtworkRadius),
+                                    child: _coverImage(
+                                      coverUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) =>
+                                          _AlbumFallbackCover(
+                                        name: name,
+                                        colors: gradient,
+                                        radius: kArtworkRadius,
+                                        small: true,
+                                      ),
+                                    ),
+                                  )
+                                : _AlbumFallbackCover(
+                                    name: name,
+                                    colors: gradient,
+                                    radius: kArtworkRadius,
+                                    small: true,
+                                  ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: _textPri,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  artist.isNotEmpty
+                                      ? artist
+                                      : year.isNotEmpty
+                                          ? year
+                                          : genre.isNotEmpty
+                                              ? genre
+                                              : 'Album • Drive',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: _textSub,
+                                      fontWeight: FontWeight.w700),
+                                ),
+                              ],
                             ),
                           ),
-                          child: coverUrl.isNotEmpty
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: _coverImage(
-                                    coverUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => _AlbumFallbackCover(
-                                      name: name,
-                                      colors: gradient,
-                                      radius: 14,
-                                      small: true,
-                                    ),
-                                  ),
-                                )
-                              : _AlbumFallbackCover(
-                                  name: name,
-                                  colors: gradient,
-                                  radius: 14,
-                                  small: true,
-                                ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.inter(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w900,
-                                  color: _textPri,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                artist.isNotEmpty
-                                    ? artist
-                                    : year.isNotEmpty
-                                        ? year
-                                        : genre.isNotEmpty
-                                            ? genre
-                                            : 'Album • Drive',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.inter(fontSize: 12, color: _textSub, fontWeight: FontWeight.w700),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.chevron_right_rounded, color: _textSub),
-                      ],
+                          const Icon(Icons.chevron_right_rounded,
+                              color: _textSub),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              }, childCount: visibleAlbums.length),
+                  );
+                }, childCount: visibleAlbums.length),
+              ),
             ),
-          ),
           const SliverToBoxAdapter(
             child: SizedBox(height: 170),
           ),
         ],
       ),
-    );
+    ));
+    assert(() {
+      debugPrint('Library build (albums): ${stopwatch.elapsedMicroseconds}us');
+      return true;
+    }());
+    return page;
   }
 }
 
@@ -994,10 +1264,13 @@ class _LibraryModePill extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white.withOpacity(0.12) : Colors.transparent,
+          color:
+              isSelected ? Colors.white.withOpacity(0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: isSelected ? Colors.white.withOpacity(0.24) : Colors.white.withOpacity(0.12),
+            color: isSelected
+                ? Colors.white.withOpacity(0.24)
+                : Colors.white.withOpacity(0.12),
           ),
         ),
         child: Text(

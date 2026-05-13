@@ -123,6 +123,7 @@ class TrackReadResult {
   final String? year;
   final String? genre;
   final Uint8List? coverBytes;
+  final Duration? duration;
 
   const TrackReadResult({
     this.title,
@@ -133,6 +134,7 @@ class TrackReadResult {
     this.year,
     this.genre,
     this.coverBytes,
+    this.duration,
   });
 
   bool get hasUsefulText {

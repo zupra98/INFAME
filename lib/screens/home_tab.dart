@@ -1,6 +1,65 @@
 part of '../main.dart';
 
 extension BuildHomeTabExtension on _MainScreenState {
+  ({
+    List<Map<String, String>> recent,
+    List<Map<String, String>> played,
+    List<Map<String, String>> library,
+    List<Map<String, String>> explore,
+    List<Map<String, String>> heavy
+  }) _cachedHomeTabData() {
+    final cacheKey = [
+      _albums.length,
+      _libraryBrain.length,
+      _playHistory.length,
+      _homeShowContinue,
+      _homeShowArtists,
+      _homeShowDiscovery,
+      _homeBrowseCacheVersion,
+      _shuffledExploreAlbums.length,
+    ].join('|');
+
+    if (_cachedHomeListKey == cacheKey) {
+      return (
+        recent: _cachedRecentBrainAlbums,
+        played: _cachedLastPlayedAlbums,
+        library: _cachedHomeLibraryAlbums,
+        explore: _cachedHomeExploreAlbums,
+        heavy: _cachedHomeHeavyRotationAlbums,
+      );
+    }
+
+    final recent = _recentBrainAlbums(limit: 14);
+    final played = _lastPlayedAlbums(limit: 10);
+    final primaryAlbums = played.isNotEmpty ? played : recent;
+    final allAlbums = _albums;
+    final library =
+        allAlbums.where((a) => !primaryAlbums.contains(a)).take(14).toList();
+    final explore = _shuffledExploreAlbums.isEmpty
+        ? (List<Map<String, String>>.from(allAlbums)..shuffle())
+            .take(14)
+            .toList()
+        : _shuffledExploreAlbums;
+    final heavy = primaryAlbums.isNotEmpty
+        ? primaryAlbums.take(8).toList()
+        : allAlbums.take(8).toList();
+
+    _cachedHomeListKey = cacheKey;
+    _cachedRecentBrainAlbums = recent;
+    _cachedLastPlayedAlbums = played;
+    _cachedHomeLibraryAlbums = library;
+    _cachedHomeExploreAlbums = explore;
+    _cachedHomeHeavyRotationAlbums = heavy;
+
+    return (
+      recent: recent,
+      played: played,
+      library: library,
+      explore: explore,
+      heavy: heavy,
+    );
+  }
+
   String _greeting() {
     final hour = DateTime.now().hour;
     if (hour < 12) return 'Good morning';
@@ -10,15 +69,18 @@ extension BuildHomeTabExtension on _MainScreenState {
   }
 
   Widget buildHomeTab() {
+    final stopwatch = Stopwatch()..start();
     final colors = _safeColors(_currentDynamicColors);
-    final recent = _recentBrainAlbums(limit: 14);
-    final played = _lastPlayedAlbums(limit: 10);
+    final homeData = _cachedHomeTabData();
+    final recent = homeData.recent;
+    final played = homeData.played;
     final primaryAlbums = played.isNotEmpty ? played : recent;
     final allAlbums = _albums;
 
     final glowColor = _isDarkMode ? Colors.white : _neonMagenta;
 
-    return NotificationListener<ScrollNotification>(
+    final page = RepaintBoundary(
+        child: NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         return false;
       },
@@ -33,169 +95,174 @@ extension BuildHomeTabExtension on _MainScreenState {
           backgroundColor: Colors.transparent,
           displacement: 60,
           child: CustomScrollView(
-                key: const PageStorageKey('home_tab_v3'),
-                physics: const BouncingScrollPhysics(),
-                slivers: [
+              key: const PageStorageKey('home_tab_v3'),
+              physics: const BouncingScrollPhysics(),
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 60, 20, 0),
+                  sliver: SliverToBoxAdapter(
+                    child: _HomeGreetingHeader(
+                      greeting: _greeting(),
+                      colors: colors,
+                      onSearch: () => _selectRootTab(1),
+                      onSources: () => _selectRootTab(2),
+                      onSettings: _openSettingsSheet,
+                      isDarkMode: _isDarkMode,
+                    ),
+                  ),
+                ),
+                if (_loadingMetadata)
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 0),
+                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
                     sliver: SliverToBoxAdapter(
-                      child: _HomeGreetingHeader(
-                        greeting: _greeting(),
+                      child: _HomeProgressBlock(
+                        label: _metadataStatusLabel(),
+                        progress: _metadataTotal > 0
+                            ? (_metadataDone / _metadataTotal).clamp(0.0, 1.0)
+                            : null,
                         colors: colors,
-                        onSearch: () => _selectRootTab(1),
-                        onSources: () => _selectRootTab(2),
-                        onSettings: _openSettingsSheet,
-                        isDarkMode: _isDarkMode,
+                        onTap: _openSettingsSheet,
                       ),
                     ),
                   ),
-                  if (_loadingMetadata)
+                if (_loadingSaved || _isScanning)
+                  const SliverFillRemaining(
+                    child: Center(child: _HomeLoader()),
+                  )
+                else if (_albums.isEmpty)
+                  SliverFillRemaining(
+                    child: _HomeEmptyState(onSources: () => _selectRootTab(2)),
+                  )
+                else ...[
+                  // Recently Played row
+                  if (_homeShowContinue && primaryAlbums.isNotEmpty) ...[
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+                      padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
                       sliver: SliverToBoxAdapter(
-                        child: _HomeProgressBlock(
-                          label: _metadataStatusLabel(),
-                          progress: _metadataTotal > 0 ? (_metadataDone / _metadataTotal).clamp(0.0, 1.0) : null,
-                          colors: colors,
-                          onTap: _openSettingsSheet,
+                        child: Text(
+                          'Recently Played',
+                          style: GoogleFonts.inter(
+                            color: glowColor,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ),
-                  if (_loadingSaved || _isScanning)
-                    const SliverFillRemaining(
-                      child: Center(child: _HomeLoader()),
-                    )
-                  else if (_albums.isEmpty)
-                    SliverFillRemaining(
-                      child: _HomeEmptyState(onSources: () => _selectRootTab(2)),
-                    )
-                  else ...[
-                    // Recently Played row
-                    if (_homeShowContinue && primaryAlbums.isNotEmpty) ...[
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
-                        sliver: SliverToBoxAdapter(
-                          child: Text(
-                            'Recently Played',
-                            style: GoogleFonts.inter(
-                              color: glowColor,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                            ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: _AnimatedSection(
+                          delay: 120,
+                          child: _HomeAlbumRow(
+                            albums: primaryAlbums,
+                            onTap: _openAlbumByBrain,
+                            isDarkMode: _isDarkMode,
                           ),
                         ),
                       ),
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                        sliver: SliverToBoxAdapter(
-                          child: _AnimatedSection(
-                            delay: 120,
-                            child: _HomeAlbumRow(
-                              albums: primaryAlbums,
-                              onTap: _openAlbumByBrain,
-                              isDarkMode: _isDarkMode,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                    // Your Library row
-                    if (_homeShowArtists && allAlbums.length > primaryAlbums.length) ...[
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
-                        sliver: SliverToBoxAdapter(
-                          child: Text(
-                            'Your Library',
-                            style: GoogleFonts.inter(
-                              color: glowColor,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                        sliver: SliverToBoxAdapter(
-                          child: _AnimatedSection(
-                            delay: 220,
-                            child: _HomeAlbumRow(
-                              albums: allAlbums.where((a) => !primaryAlbums.contains(a)).take(14).toList(),
-                              onTap: _openAlbumByBrain,
-                              isDarkMode: _isDarkMode,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                    // Explore row (all albums shuffled)
-                    if (_homeShowDiscovery && allAlbums.length > 4) ...[
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
-                        sliver: SliverToBoxAdapter(
-                          child: Text(
-                            'Explore',
-                            style: GoogleFonts.inter(
-                              color: glowColor,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                        sliver: SliverToBoxAdapter(
-                          child: _AnimatedSection(
-                            delay: 320,
-                            child: _HomeAlbumRow(
-                              albums: _shuffledExploreAlbums.isEmpty
-                                  ? (List<Map<String, String>>.from(allAlbums)..shuffle()).take(14).toList()
-                                  : _shuffledExploreAlbums,
-                              onTap: _openAlbumByBrain,
-                              isDarkMode: _isDarkMode,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                    // Heavy Rotation
-                    if (_homeShowDiscovery) ...[
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
-                        sliver: SliverToBoxAdapter(
-                          child: Text(
-                            'Heavy Rotation',
-                            style: GoogleFonts.inter(
-                              color: glowColor,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                        sliver: SliverToBoxAdapter(
-                          child: _AnimatedSection(
-                            delay: 420,
-                            child: _HomeAlbumRow(
-                              albums: primaryAlbums.isNotEmpty ? primaryAlbums.take(8).toList() : allAlbums.take(8).toList(),
-                              onTap: _openAlbumByBrain,
-                              isDarkMode: _isDarkMode,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: 170),
-                      ),
-                    ],
+                    ),
                   ],
-          ]),
+                  // Your Library row
+                  if (_homeShowArtists && homeData.library.isNotEmpty) ...[
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
+                      sliver: SliverToBoxAdapter(
+                        child: Text(
+                          'Your Library',
+                          style: GoogleFonts.inter(
+                            color: glowColor,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: _AnimatedSection(
+                          delay: 220,
+                          child: _HomeAlbumRow(
+                            albums: homeData.library,
+                            onTap: _openAlbumByBrain,
+                            isDarkMode: _isDarkMode,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  // Explore row (all albums shuffled)
+                  if (_homeShowDiscovery && allAlbums.length > 4) ...[
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
+                      sliver: SliverToBoxAdapter(
+                        child: Text(
+                          'Explore',
+                          style: GoogleFonts.inter(
+                            color: glowColor,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: _AnimatedSection(
+                          delay: 320,
+                          child: _HomeAlbumRow(
+                            albums: homeData.explore,
+                            onTap: _openAlbumByBrain,
+                            isDarkMode: _isDarkMode,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  // Heavy Rotation
+                  if (_homeShowDiscovery) ...[
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 28, 20, 10),
+                      sliver: SliverToBoxAdapter(
+                        child: Text(
+                          'Heavy Rotation',
+                          style: GoogleFonts.inter(
+                            color: glowColor,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: _AnimatedSection(
+                          delay: 420,
+                          child: _HomeAlbumRow(
+                            albums: homeData.heavy,
+                            onTap: _openAlbumByBrain,
+                            isDarkMode: _isDarkMode,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: 170),
+                    ),
+                  ],
+                ],
+              ]),
         ),
       ),
-    );
+    ));
+    assert(() {
+      debugPrint('Home build: ${stopwatch.elapsedMicroseconds}us');
+      return true;
+    }());
+    return page;
   }
 }
 
@@ -236,17 +303,20 @@ class _HomeGreetingHeader extends StatelessWidget {
         ),
         IconButton(
           onPressed: onSearch,
-          icon: Icon(Icons.search_rounded, color: glowColor.withOpacity(0.88), size: 26),
+          icon: Icon(Icons.search_rounded,
+              color: glowColor.withOpacity(0.88), size: 26),
         ),
         const SizedBox(width: 8),
         IconButton(
           onPressed: onSources,
-          icon: Icon(Icons.storage_rounded, color: glowColor.withOpacity(0.88), size: 26),
+          icon: Icon(Icons.storage_rounded,
+              color: glowColor.withOpacity(0.88), size: 26),
         ),
         const SizedBox(width: 2),
         IconButton(
           onPressed: onSettings,
-          icon: Icon(Icons.tune_rounded, color: glowColor.withOpacity(0.88), size: 24),
+          icon: Icon(Icons.tune_rounded,
+              color: glowColor.withOpacity(0.88), size: 24),
         ),
       ],
     );
@@ -335,7 +405,8 @@ class _HomeLoader extends StatelessWidget {
           height: 40,
           child: CircularProgressIndicator(
             strokeWidth: 3,
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.white.withOpacity(0.6)),
+            valueColor:
+                AlwaysStoppedAnimation<Color>(Colors.white.withOpacity(0.6)),
           ),
         ),
         const SizedBox(height: 16),
@@ -395,7 +466,8 @@ class _HomeEmptyState extends StatelessWidget {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -430,7 +502,8 @@ class _HomeHeroAlbum extends StatefulWidget {
   State<_HomeHeroAlbum> createState() => _HomeHeroAlbumState();
 }
 
-class _HomeHeroAlbumState extends State<_HomeHeroAlbum> with SingleTickerProviderStateMixin {
+class _HomeHeroAlbumState extends State<_HomeHeroAlbum>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _pulseController;
 
   @override
@@ -465,7 +538,7 @@ class _HomeHeroAlbumState extends State<_HomeHeroAlbum> with SingleTickerProvide
         margin: const EdgeInsets.symmetric(horizontal: 20),
         height: 320,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(kArtworkRadius),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -534,7 +607,8 @@ class _HomeHeroAlbumState extends State<_HomeHeroAlbum> with SingleTickerProvide
                           ),
                         ],
                       ),
-                      child: Icon(Icons.play_arrow_rounded, color: Colors.black, size: 36),
+                      child: Icon(Icons.play_arrow_rounded,
+                          color: Colors.black, size: 36),
                     ),
                   );
                 },
@@ -592,7 +666,8 @@ class _AnimatedSection extends StatefulWidget {
   State<_AnimatedSection> createState() => _AnimatedSectionState();
 }
 
-class _AnimatedSectionState extends State<_AnimatedSection> with SingleTickerProviderStateMixin {
+class _AnimatedSectionState extends State<_AnimatedSection>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _animation;
 
@@ -624,7 +699,8 @@ class _AnimatedSectionState extends State<_AnimatedSection> with SingleTickerPro
     return FadeTransition(
       opacity: _animation,
       child: SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, 0.15), end: Offset.zero).animate(_animation),
+        position: Tween<Offset>(begin: const Offset(0, 0.15), end: Offset.zero)
+            .animate(_animation),
         child: widget.child,
       ),
     );
@@ -652,7 +728,8 @@ class _HomeAlbumRow extends StatelessWidget {
         itemBuilder: (context, index) {
           final album = albums[index];
           return Padding(
-            padding: EdgeInsets.only(right: index == albums.length - 1 ? 0 : 12),
+            padding:
+                EdgeInsets.only(right: index == albums.length - 1 ? 0 : 12),
             child: _HomeAlbumCard(
               key: ValueKey(album['id'] ?? album['name']),
               info: album,
@@ -740,7 +817,7 @@ class _JumpBackInCard extends StatelessWidget {
                   width: 140,
                   height: 100,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(kArtworkRadius),
                     gradient: LinearGradient(colors: gradient),
                   ),
                   clipBehavior: Clip.antiAlias,
@@ -751,11 +828,15 @@ class _JumpBackInCard extends StatelessWidget {
                           errorBuilder: (_, __, ___) => _AlbumFallbackCover(
                             name: title,
                             colors: gradient,
-                            radius: 12,
+                            radius: kArtworkRadius,
                             small: true,
                           ),
                         )
-                      : _AlbumFallbackCover(name: title, colors: gradient, radius: 12, small: true),
+                      : _AlbumFallbackCover(
+                          name: title,
+                          colors: gradient,
+                          radius: kArtworkRadius,
+                          small: true),
                 ),
               ],
             ),
@@ -790,7 +871,8 @@ class _FloatingShuffleButton extends StatefulWidget {
   State<_FloatingShuffleButton> createState() => _FloatingShuffleButtonState();
 }
 
-class _FloatingShuffleButtonState extends State<_FloatingShuffleButton> with SingleTickerProviderStateMixin {
+class _FloatingShuffleButtonState extends State<_FloatingShuffleButton>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _scaleAnimation;
 
@@ -859,7 +941,8 @@ class _HomeAlbumTile extends StatefulWidget {
   State<_HomeAlbumTile> createState() => _HomeAlbumTileState();
 }
 
-class _HomeAlbumTileState extends State<_HomeAlbumTile> with SingleTickerProviderStateMixin {
+class _HomeAlbumTileState extends State<_HomeAlbumTile>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _scaleAnimation;
 
@@ -883,7 +966,8 @@ class _HomeAlbumTileState extends State<_HomeAlbumTile> with SingleTickerProvide
 
   @override
   Widget build(BuildContext context) {
-    final name = widget.album['displayName'] ?? widget.album['name'] ?? 'Unknown';
+    final name =
+        widget.album['displayName'] ?? widget.album['name'] ?? 'Unknown';
     final artist = widget.album['artist'] ?? 'Unknown Artist';
     final cover = widget.album['cover'] ?? widget.album['coverUrl'] ?? '';
     final gradient = getAlbumGradient(name);
@@ -909,7 +993,7 @@ class _HomeAlbumTileState extends State<_HomeAlbumTile> with SingleTickerProvide
                   width: 140,
                   height: 140,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(kArtworkRadius),
                     gradient: LinearGradient(colors: gradient),
                   ),
                   clipBehavior: Clip.antiAlias,
@@ -920,14 +1004,14 @@ class _HomeAlbumTileState extends State<_HomeAlbumTile> with SingleTickerProvide
                           errorBuilder: (_, __, ___) => _AlbumFallbackCover(
                             name: name,
                             colors: gradient,
-                            radius: 12,
+                            radius: kArtworkRadius,
                             small: true,
                           ),
                         )
                       : _AlbumFallbackCover(
                           name: name,
                           colors: gradient,
-                          radius: 12,
+                          radius: kArtworkRadius,
                           small: true,
                         ),
                 ),

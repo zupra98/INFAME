@@ -87,7 +87,9 @@ class _SettingsPrimaryButton extends StatelessWidget {
           color: background,
           borderRadius: BorderRadius.circular(28),
           border: Border.all(
-            color: destructive ? Colors.white.withOpacity(0.15) : Colors.transparent,
+            color: destructive
+                ? Colors.white.withOpacity(0.15)
+                : Colors.transparent,
           ),
         ),
         child: Row(
@@ -318,7 +320,8 @@ class _SettingsActionRow extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, color: _textSub.withOpacity(0.8)),
+              Icon(Icons.chevron_right_rounded,
+                  color: _textSub.withOpacity(0.8)),
             ],
           ),
         ),
@@ -326,7 +329,6 @@ class _SettingsActionRow extends StatelessWidget {
     );
   }
 }
-
 
 class _HomeActionCard extends StatelessWidget {
   final IconData icon;
@@ -465,10 +467,11 @@ class _HomeAlbumCard extends StatelessWidget {
     final genre = info['genre'] ?? '';
     final coverUrl = info['coverUrl'] ?? info['cover'] ?? '';
     final gradient = getAlbumGradient(name);
-    
+
     final glowColor = isDarkMode ? Colors.white : _neonMagenta;
 
-    return GestureDetector(
+    return RepaintBoundary(
+      child: GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
@@ -477,46 +480,43 @@ class _HomeAlbumCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(22),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                child: Container(
-                  width: 138,
-                  height: 138,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(22),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: gradient,
-                    ),
-                    border: Border.all(
-                      color: isDarkMode ? glowColor.withOpacity(0.2) : _lightAccentPink.withOpacity(0.22),
-                      width: 1,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: isDarkMode ? glowColor.withOpacity(0.15) : _lightAccentPink.withOpacity(0.12),
-                        blurRadius: 24,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
+              borderRadius: BorderRadius.circular(kArtworkRadius),
+              child: Container(
+                width: 138,
+                height: 138,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(kArtworkRadius),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: gradient,
                   ),
-                  child: coverUrl.isNotEmpty
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(22),
-                          child: _coverImage(
-                            coverUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _AlbumFallbackCover(
-                              name: name,
-                              colors: gradient,
-                              radius: 22,
-                            ),
-                          ),
-                        )
-                      : _AlbumFallbackCover(name: name, colors: gradient, radius: 22),
+                  boxShadow: [
+                    BoxShadow(
+                      color: isDarkMode
+                          ? glowColor.withOpacity(0.15)
+                          : _lightAccentPink.withOpacity(0.12),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
+                child: coverUrl.isNotEmpty
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(kArtworkRadius),
+                        child: _coverImage(
+                          coverUrl,
+                          fit: BoxFit.cover,
+                          cacheSize: 160,
+                          errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+                            name: name,
+                            colors: gradient,
+                            radius: kArtworkRadius,
+                          ),
+                        ),
+                      )
+                    : _AlbumFallbackCover(
+                        name: name, colors: gradient, radius: kArtworkRadius),
               ),
             ),
             const SizedBox(height: 10),
@@ -542,10 +542,10 @@ class _HomeAlbumCard extends StatelessWidget {
           ],
         ),
       ),
+      ),
     );
   }
 }
-
 
 class _HomeSectionHeader extends StatelessWidget {
   final String title;
@@ -618,7 +618,7 @@ class _HomeSpotlightCard extends StatelessWidget {
               width: 118,
               height: 118,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(kArtworkRadius),
                 gradient: LinearGradient(colors: gradient),
                 boxShadow: [
                   BoxShadow(
@@ -630,18 +630,19 @@ class _HomeSpotlightCard extends StatelessWidget {
               ),
               child: cover.isNotEmpty
                   ? ClipRRect(
-                      borderRadius: BorderRadius.circular(22),
+                      borderRadius: BorderRadius.circular(kArtworkRadius),
                       child: _coverImage(
                         cover,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => _AlbumFallbackCover(
                           name: name,
                           colors: gradient,
-                          radius: 22,
+                          radius: kArtworkRadius,
                         ),
                       ),
                     )
-                  : _AlbumFallbackCover(name: name, colors: gradient, radius: 22),
+                  : _AlbumFallbackCover(
+                      name: name, colors: gradient, radius: kArtworkRadius),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -685,9 +686,13 @@ class _HomeSpotlightCard extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      if (year.isNotEmpty) _MiniInfoPill(label: year, accent: accent),
-                      if (genre.isNotEmpty) _MiniInfoPill(label: genre, accent: accent),
-                      if (trackCount.isNotEmpty) _MiniInfoPill(label: '$trackCount tracks', accent: accent),
+                      if (year.isNotEmpty)
+                        _MiniInfoPill(label: year, accent: accent),
+                      if (genre.isNotEmpty)
+                        _MiniInfoPill(label: genre, accent: accent),
+                      if (trackCount.isNotEmpty)
+                        _MiniInfoPill(
+                            label: '$trackCount tracks', accent: accent),
                     ],
                   ),
                 ],
@@ -727,8 +732,6 @@ class _MiniInfoPill extends StatelessWidget {
   }
 }
 
-
-
 class _RecentTrackPill extends StatelessWidget {
   final Map<String, String> item;
   final Color accent;
@@ -764,24 +767,28 @@ class _RecentTrackPill extends StatelessWidget {
                 width: 54,
                 height: 54,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(kArtworkRadius),
                   gradient: LinearGradient(colors: gradient),
                 ),
                 child: cover.isNotEmpty
                     ? ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(kArtworkRadius),
                         child: _coverImage(
                           cover,
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => _AlbumFallbackCover(
                             name: albumName,
                             colors: gradient,
-                            radius: 16,
+                            radius: kArtworkRadius,
                             small: true,
                           ),
                         ),
                       )
-                    : _AlbumFallbackCover(name: albumName, colors: gradient, radius: 16, small: true),
+                    : _AlbumFallbackCover(
+                        name: albumName,
+                        colors: gradient,
+                        radius: kArtworkRadius,
+                        small: true),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -813,7 +820,8 @@ class _RecentTrackPill extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, color: accent.withOpacity(0.85)),
+              Icon(Icons.chevron_right_rounded,
+                  color: accent.withOpacity(0.85)),
             ],
           ),
         ),
@@ -943,7 +951,12 @@ class _AlbumGridCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool isDarkMode;
 
-  const _AlbumGridCard({this.key, required this.album, required this.onTap, required this.isDarkMode}) : super(key: key);
+  const _AlbumGridCard(
+      {this.key,
+      required this.album,
+      required this.onTap,
+      required this.isDarkMode})
+      : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -953,10 +966,11 @@ class _AlbumGridCard extends StatelessWidget {
     final genre = album['genre'] ?? '';
     final coverUrl = album['cover'] ?? '';
     final gradient = getAlbumGradient(name);
-    
+
     final glowColor = isDarkMode ? Colors.white : _neonMagenta;
 
-    return GestureDetector(
+    return RepaintBoundary(
+      child: GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: GlassyContainer(
@@ -969,35 +983,35 @@ class _AlbumGridCard extends StatelessWidget {
           children: [
             Expanded(
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                  child: Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: gradient,
-                      ),
-                      border: Border.all(color: glowColor.withOpacity(0.15), width: 1),
+                borderRadius: BorderRadius.circular(kArtworkRadius),
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(kArtworkRadius),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: gradient,
                     ),
-                    child: coverUrl.isNotEmpty
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(18),
-                            child: _coverImage(
-                              coverUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _AlbumFallbackCover(
-                                name: name,
-                                colors: gradient,
-                                radius: 18,
-                              ),
-                            ),
-                          )
-                        : _AlbumFallbackCover(name: name, colors: gradient, radius: 18),
                   ),
+                  child: coverUrl.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(kArtworkRadius),
+                          child: _coverImage(
+                            coverUrl,
+                            fit: BoxFit.cover,
+                            cacheSize: 240,
+                            errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+                              name: name,
+                              colors: gradient,
+                              radius: kArtworkRadius,
+                            ),
+                          ),
+                        )
+                      : _AlbumFallbackCover(
+                          name: name,
+                          colors: gradient,
+                          radius: kArtworkRadius),
                 ),
               ),
             ),
@@ -1023,10 +1037,14 @@ class _AlbumGridCard extends StatelessWidget {
                           : 'Album',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(color: glowColor.withOpacity(0.7), fontSize: 12, fontWeight: FontWeight.w600),
+              style: GoogleFonts.inter(
+                  color: glowColor.withOpacity(0.7),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600),
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -1083,6 +1101,8 @@ class _TrackGlassTile extends StatefulWidget {
   final String? coverUrl;
   final String? durationText;
   final VoidCallback onTap;
+  final VoidCallback? onPlayNext;
+  final VoidCallback? onAddToQueue;
   final bool isDarkMode;
 
   const _TrackGlassTile({
@@ -1093,6 +1113,8 @@ class _TrackGlassTile extends StatefulWidget {
     this.coverUrl,
     this.durationText,
     required this.onTap,
+    this.onPlayNext,
+    this.onAddToQueue,
     required this.isDarkMode,
   }) : super(key: key);
 
@@ -1100,7 +1122,8 @@ class _TrackGlassTile extends StatefulWidget {
   State<_TrackGlassTile> createState() => _TrackGlassTileState();
 }
 
-class _TrackGlassTileState extends State<_TrackGlassTile> with SingleTickerProviderStateMixin {
+class _TrackGlassTileState extends State<_TrackGlassTile>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _tapController;
   late final Animation<double> _scaleAnim;
   bool _tapped = false;
@@ -1137,8 +1160,11 @@ class _TrackGlassTileState extends State<_TrackGlassTile> with SingleTickerProvi
     return ListenableBuilder(
       listenable: _nowPlaying,
       builder: (ctx, _) {
-        final activeId = _nowPlaying.track == null ? null : DriveUtils.effectiveId(_nowPlaying.track!);
-        final isActive = activeId != null && activeId == DriveUtils.effectiveId(widget.track);
+        final activeId = _nowPlaying.track == null
+            ? null
+            : DriveUtils.effectiveId(_nowPlaying.track!);
+        final isActive = activeId != null &&
+            activeId == DriveUtils.effectiveId(widget.track);
         final meta = DriveUtils.getTrackMeta(widget.track);
         final colors = _safeColors(_nowPlaying.dynamicColors);
         final glowColor = _neonMagenta;
@@ -1161,7 +1187,9 @@ class _TrackGlassTileState extends State<_TrackGlassTile> with SingleTickerProvi
                         : Colors.white.withOpacity(0.03),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: isActive ? glowColor.withOpacity(0.25) : Colors.transparent,
+                  color: isActive
+                      ? glowColor.withOpacity(0.25)
+                      : Colors.transparent,
                   width: 1,
                 ),
               ),
@@ -1171,16 +1199,19 @@ class _TrackGlassTileState extends State<_TrackGlassTile> with SingleTickerProvi
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: isActive ? glowColor.withOpacity(0.20) : _glassWhite,
-                      borderRadius: BorderRadius.circular(12),
+                      color:
+                          isActive ? glowColor.withOpacity(0.20) : _glassWhite,
+                      borderRadius: BorderRadius.circular(kArtworkRadius),
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: (widget.coverUrl != null && widget.coverUrl!.isNotEmpty)
+                      borderRadius: BorderRadius.circular(kArtworkRadius),
+                      child: (widget.coverUrl != null &&
+                              widget.coverUrl!.isNotEmpty)
                           ? _coverImage(
                               widget.coverUrl!,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _TrackIcon(isActive: isActive, colors: colors),
+                              errorBuilder: (_, __, ___) => _TrackIcon(
+                                  isActive: isActive, colors: colors),
                             )
                           : _TrackIcon(isActive: isActive, colors: colors),
                     ),
@@ -1209,23 +1240,78 @@ class _TrackGlassTileState extends State<_TrackGlassTile> with SingleTickerProvi
                           meta['artist']!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.inter(fontSize: 12, color: _textSub),
+                          style:
+                              GoogleFonts.inter(fontSize: 12, color: _textSub),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 10),
-                  if ((widget.durationText ?? '').isNotEmpty)
-                    Text(
-                      widget.durationText!,
-                      style: GoogleFonts.inter(
-                        color: isActive ? glowColor : _textSub,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    )
-                  else
-                    const Icon(Icons.more_horiz_rounded, color: _textSub, size: 22),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if ((widget.durationText ?? '').isNotEmpty)
+                        Text(
+                          widget.durationText!,
+                          style: GoogleFonts.inter(
+                            color: isActive ? glowColor : _textSub,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      if ((widget.onPlayNext != null) ||
+                          (widget.onAddToQueue != null))
+                        PopupMenuButton<int>(
+                          tooltip: 'Track options',
+                          icon: const Icon(Icons.more_vert_rounded,
+                              color: _textSub, size: 20),
+                          padding: EdgeInsets.zero,
+                          splashRadius: 20,
+                          color: const Color(0xFF1A1A22),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16)),
+                          onSelected: (value) {
+                            if (value == 1) {
+                              widget.onPlayNext?.call();
+                            } else if (value == 2) {
+                              widget.onAddToQueue?.call();
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            if (widget.onPlayNext != null)
+                              PopupMenuItem<int>(
+                                value: 1,
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.play_arrow_rounded,
+                                        size: 18, color: _textPri),
+                                    const SizedBox(width: 10),
+                                    Text('Play Next',
+                                        style: GoogleFonts.inter(
+                                            color: _textPri,
+                                            fontWeight: FontWeight.w700)),
+                                  ],
+                                ),
+                              ),
+                            if (widget.onAddToQueue != null)
+                              PopupMenuItem<int>(
+                                value: 2,
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.queue_music_rounded,
+                                        size: 18, color: _textPri),
+                                    const SizedBox(width: 10),
+                                    Text('Add to Queue',
+                                        style: GoogleFonts.inter(
+                                            color: _textPri,
+                                            fontWeight: FontWeight.w700)),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -1296,7 +1382,6 @@ class _AlbumActionButton extends StatelessWidget {
     );
   }
 }
-
 
 class _TrackIcon extends StatelessWidget {
   final bool isActive;

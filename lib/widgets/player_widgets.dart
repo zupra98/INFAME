@@ -728,10 +728,14 @@ class _LyricsSheetState extends State<_LyricsSheet> {
 class _QueueSheet extends StatelessWidget {
   final List<Color> colors;
   final Future<void> Function(drive.File track, int index) onPlayFromQueue;
+  final Map<String, int> knownTrackDurationsMs;
+  final Map<String, Duration> knownTrackDurations;
 
   const _QueueSheet({
     required this.colors,
     required this.onPlayFromQueue,
+    required this.knownTrackDurationsMs,
+    required this.knownTrackDurations,
   });
 
   @override
@@ -805,6 +809,16 @@ class _QueueSheet extends StatelessWidget {
                           final track = _nowPlaying.queue[i];
                           final meta = DriveUtils.getTrackMeta(track);
                           final isActive = i == _nowPlaying.queueIndex;
+                          final trackKey = track.id ?? '';
+                          
+                          // Get duration from cache
+                          Duration? duration;
+                          final durationMs = knownTrackDurationsMs[trackKey];
+                          if (durationMs != null && durationMs > 0) {
+                            duration = Duration(milliseconds: durationMs);
+                          } else {
+                            duration = knownTrackDurations[trackKey];
+                          }
 
                           return GestureDetector(
                             onTap: () async {
@@ -862,6 +876,18 @@ class _QueueSheet extends StatelessWidget {
                                       ],
                                     ),
                                   ),
+                                  if (duration != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 12),
+                                      child: Text(
+                                        '${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}',
+                                        style: GoogleFonts.inter(
+                                          color: _textSub,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
                                   if (isActive)
                                     Icon(Icons.graphic_eq_rounded, color: safe[1], size: 22),
                                 ],
@@ -889,6 +915,8 @@ class _PlayerFloatingBar extends StatelessWidget {
   final VoidCallback onPrev;
   final Future<void> Function(drive.File track, int index) onPlayFromQueue;
   final bool isDarkMode;
+  final Map<String, int> knownTrackDurationsMs;
+  final Map<String, Duration> knownTrackDurations;
 
   const _PlayerFloatingBar({
     required this.player,
@@ -896,6 +924,8 @@ class _PlayerFloatingBar extends StatelessWidget {
     required this.onPrev,
     required this.onPlayFromQueue,
     required this.isDarkMode,
+    required this.knownTrackDurationsMs,
+    required this.knownTrackDurations,
   });
 
   void _openFullScreenPlayer(BuildContext context) {
@@ -912,6 +942,8 @@ class _PlayerFloatingBar extends StatelessWidget {
           onPrev: onPrev,
           onPlayFromQueue: onPlayFromQueue,
           isDarkMode: isDarkMode,
+          knownTrackDurationsMs: knownTrackDurationsMs,
+          knownTrackDurations: knownTrackDurations,
         );
       },
     );
@@ -976,7 +1008,7 @@ class _PlayerFloatingBar extends StatelessWidget {
                                   coverUrl: coverUrl,
                                   colors: colors,
                                   size: 62,
-                                  radius: 14,
+                                  radius: kArtworkRadius,
                                   shadow: false,
                                 ),
                               ),
@@ -1146,10 +1178,6 @@ class _PremiumCoverArt extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [safe[0], safe[1], safe[2]],
         ),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.20),
-          width: 0.5,
-        ),
         boxShadow: shadow
             ? [
                 // Soft diffused drop-shadow using album colors
@@ -1234,6 +1262,8 @@ class _FullScreenPlayerSheet extends StatefulWidget {
   final VoidCallback onPrev;
   final Future<void> Function(drive.File track, int index) onPlayFromQueue;
   final bool isDarkMode;
+  final Map<String, int> knownTrackDurationsMs;
+  final Map<String, Duration> knownTrackDurations;
 
   const _FullScreenPlayerSheet({
     required this.player,
@@ -1241,6 +1271,8 @@ class _FullScreenPlayerSheet extends StatefulWidget {
     required this.onPrev,
     required this.onPlayFromQueue,
     required this.isDarkMode,
+    required this.knownTrackDurationsMs,
+    required this.knownTrackDurations,
   });
 
   @override
@@ -1287,6 +1319,8 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
         return _QueueSheet(
           colors: colors,
           onPlayFromQueue: widget.onPlayFromQueue,
+          knownTrackDurationsMs: widget.knownTrackDurationsMs,
+          knownTrackDurations: widget.knownTrackDurations,
         );
       },
     );
