@@ -17,7 +17,7 @@ class _VinylDisc extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final safe = _safeColors(colors);
-    final centerSize = size * 0.24;
+    final centerSize = size * 0.22;
 
     return SizedBox(
       width: size,
@@ -75,12 +75,12 @@ class _VinylDisc extends StatelessWidget {
             ),
           ),
           if (showGrooves) ...[
-            _VinylRing(size: size * 0.92, opacity: 0.04),
-            _VinylRing(size: size * 0.82, opacity: 0.05),
-            _VinylRing(size: size * 0.72, opacity: 0.04),
-            _VinylRing(size: size * 0.62, opacity: 0.05),
-            _VinylRing(size: size * 0.52, opacity: 0.04),
-            _VinylRing(size: size * 0.42, opacity: 0.05),
+            _VinylRing(size: size * 0.92, opacity: 0.03),
+            _VinylRing(size: size * 0.82, opacity: 0.04),
+            _VinylRing(size: size * 0.72, opacity: 0.035),
+            _VinylRing(size: size * 0.62, opacity: 0.04),
+            _VinylRing(size: size * 0.52, opacity: 0.035),
+            _VinylRing(size: size * 0.42, opacity: 0.04),
           ],
           // Center label with album artwork
           Container(
@@ -93,7 +93,8 @@ class _VinylDisc extends StatelessWidget {
                 end: Alignment.bottomRight,
                 colors: safe,
               ),
-              border: Border.all(color: Colors.white.withOpacity(0.08), width: 0.5),
+              border:
+                  Border.all(color: Colors.white.withOpacity(0.08), width: 0.5),
             ),
             clipBehavior: Clip.antiAlias,
             child: coverUrl != null && coverUrl!.isNotEmpty
@@ -302,7 +303,8 @@ class _InteractiveCoverArtState extends State<_InteractiveCoverArt>
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
                   filterQuality: FilterQuality.high,
-                  frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                  frameBuilder:
+                      (context, child, frame, wasSynchronouslyLoaded) {
                     if (wasSynchronouslyLoaded) return child;
                     return AnimatedOpacity(
                       opacity: frame == null ? 0 : 1,
@@ -336,7 +338,8 @@ class _InteractiveCoverArtState extends State<_InteractiveCoverArt>
             AnimatedBuilder(
               animation: _slideController,
               builder: (context, child) {
-                final vinylSlideOffset = _vinylSlideAnimation.value * (widget.size * 0.35);
+                final vinylSlideOffset =
+                    _vinylSlideAnimation.value * (widget.size * 0.27);
                 return Transform.translate(
                   offset: Offset(vinylSlideOffset, 0),
                   child: Opacity(
@@ -345,7 +348,9 @@ class _InteractiveCoverArtState extends State<_InteractiveCoverArt>
                       animation: _spinController,
                       builder: (context, child) {
                         return Transform.rotate(
-                          angle: _spinController.value * 6.283 * _spinSpeedAnimation.value,
+                          angle: _spinController.value *
+                              6.283 *
+                              _spinSpeedAnimation.value,
                           child: child,
                         );
                       },
@@ -355,7 +360,7 @@ class _InteractiveCoverArtState extends State<_InteractiveCoverArt>
                 );
               },
               child: _VinylDisc(
-                size: widget.size,
+                size: widget.size * 0.95,
                 coverUrl: widget.coverUrl,
                 colors: widget.colors,
                 showGrooves: true,
@@ -364,13 +369,17 @@ class _InteractiveCoverArtState extends State<_InteractiveCoverArt>
             AnimatedBuilder(
               animation: _slideController,
               builder: (context, child) {
-                final coverSlideOffset = _coverSlideAnimation.value * (widget.size * -0.15);
+                final coverSlideOffset =
+                    _coverSlideAnimation.value * (widget.size * -0.09);
                 return Transform.translate(
                   offset: Offset(coverSlideOffset, 0),
                   child: child,
                 );
               },
-              child: coverLayer(),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(kArtworkRadius),
+                child: coverLayer(),
+              ),
             ),
           ],
         ),
@@ -468,13 +477,15 @@ class _LyricsSheetState extends State<_LyricsSheet> {
       return decoded is List ? decoded : [];
     }
 
-    List<dynamic> results = await request(Uri.https('lrclib.net', '/api/search', params));
+    List<dynamic> results =
+        await request(Uri.https('lrclib.net', '/api/search', params));
 
     if (results.isEmpty) {
       final fallbackQuery = artist.isNotEmpty && artist != 'Unknown Artist'
           ? '$artist $title'
           : title;
-      results = await request(Uri.https('lrclib.net', '/api/search', {'q': fallbackQuery}));
+      results = await request(
+          Uri.https('lrclib.net', '/api/search', {'q': fallbackQuery}));
     }
 
     if (results.isEmpty) return null;
@@ -527,7 +538,8 @@ class _LyricsSheetState extends State<_LyricsSheet> {
 
       lines.add(
         _LyricLine(
-          time: Duration(minutes: minutes, seconds: seconds, milliseconds: millis),
+          time: Duration(
+              minutes: minutes, seconds: seconds, milliseconds: millis),
           text: text,
         ),
       );
@@ -556,7 +568,8 @@ class _LyricsSheetState extends State<_LyricsSheet> {
     if (active == _lastActiveLine || !_scrollController.hasClients) return;
     _lastActiveLine = active;
 
-    final target = (active * 44.0).clamp(0.0, _scrollController.position.maxScrollExtent);
+    final target =
+        (active * 44.0).clamp(0.0, _scrollController.position.maxScrollExtent);
 
     _scrollController.animateTo(
       target,
@@ -576,7 +589,8 @@ class _LyricsSheetState extends State<_LyricsSheet> {
         decoration: BoxDecoration(
           color: _bg.withOpacity(0.96),
           borderRadius: BorderRadius.zero,
-          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.12))),
+          border:
+              Border(top: BorderSide(color: Colors.white.withOpacity(0.12))),
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -597,12 +611,14 @@ class _LyricsSheetState extends State<_LyricsSheet> {
                   children: [
                     IconButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 34),
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                          size: 34),
                     ),
                     const Spacer(),
                     Text(
                       'Lyrics',
-                      style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w900),
+                      style: GoogleFonts.inter(
+                          fontSize: 17, fontWeight: FontWeight.w900),
                     ),
                     const Spacer(),
                     const SizedBox(width: 48),
@@ -624,25 +640,29 @@ class _LyricsSheetState extends State<_LyricsSheet> {
                     future: _lyricsFuture,
                     builder: (context, snapshot) {
                       if (snapshot.connectionState != ConnectionState.done) {
-                        return Center(child: CircularProgressIndicator(color: colors[1]));
+                        return Center(
+                            child: CircularProgressIndicator(color: colors[1]));
                       }
 
                       if (snapshot.hasError) {
                         return Center(
                           child: Text(
                             'Could not load lyrics.',
-                            style: GoogleFonts.inter(color: _textSub, fontWeight: FontWeight.w700),
+                            style: GoogleFonts.inter(
+                                color: _textSub, fontWeight: FontWeight.w700),
                           ),
                         );
                       }
 
                       final result = snapshot.data;
-                      if (result == null || (!result.hasSynced && !result.hasPlain)) {
+                      if (result == null ||
+                          (!result.hasSynced && !result.hasPlain)) {
                         return Center(
                           child: Text(
                             'No lyrics found for this track.',
                             textAlign: TextAlign.center,
-                            style: GoogleFonts.inter(color: _textSub, fontWeight: FontWeight.w700),
+                            style: GoogleFonts.inter(
+                                color: _textSub, fontWeight: FontWeight.w700),
                           ),
                         );
                       }
@@ -664,7 +684,8 @@ class _LyricsSheetState extends State<_LyricsSheet> {
                               return ListView.builder(
                                 controller: _scrollController,
                                 physics: const BouncingScrollPhysics(),
-                                padding: const EdgeInsets.only(top: 80, bottom: 160),
+                                padding:
+                                    const EdgeInsets.only(top: 80, bottom: 160),
                                 itemCount: lines.length,
                                 itemBuilder: (context, i) {
                                   final isActive = i == active;
@@ -674,11 +695,16 @@ class _LyricsSheetState extends State<_LyricsSheet> {
                                     style: GoogleFonts.inter(
                                       fontSize: isActive ? 23 : 19,
                                       height: 1.35,
-                                      fontWeight: isActive ? FontWeight.w900 : FontWeight.w700,
-                                      color: isActive ? Colors.white : Colors.white.withOpacity(0.38),
+                                      fontWeight: isActive
+                                          ? FontWeight.w900
+                                          : FontWeight.w700,
+                                      color: isActive
+                                          ? Colors.white
+                                          : Colors.white.withOpacity(0.38),
                                     ),
                                     child: Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 8),
                                       child: Text(lines[i].text),
                                     ),
                                   );
@@ -689,7 +715,8 @@ class _LyricsSheetState extends State<_LyricsSheet> {
                         }
                       }
 
-                      final plain = result.plainLyrics ?? result.syncedLyrics ?? '';
+                      final plain =
+                          result.plainLyrics ?? result.syncedLyrics ?? '';
 
                       return SingleChildScrollView(
                         physics: const BouncingScrollPhysics(),
@@ -748,7 +775,8 @@ class _QueueSheet extends StatelessWidget {
         height: MediaQuery.of(context).size.height * 0.78,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.zero,
-          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.12))),
+          border:
+              Border(top: BorderSide(color: Colors.white.withOpacity(0.12))),
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -769,12 +797,14 @@ class _QueueSheet extends StatelessWidget {
                   children: [
                     IconButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 34),
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                          size: 34),
                     ),
                     const Spacer(),
                     Text(
                       'Queue',
-                      style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w900),
+                      style: GoogleFonts.inter(
+                          fontSize: 17, fontWeight: FontWeight.w900),
                     ),
                     const Spacer(),
                     const SizedBox(width: 48),
@@ -797,7 +827,8 @@ class _QueueSheet extends StatelessWidget {
                         return Center(
                           child: Text(
                             'Queue is empty.',
-                            style: GoogleFonts.inter(color: _textSub, fontWeight: FontWeight.w700),
+                            style: GoogleFonts.inter(
+                                color: _textSub, fontWeight: FontWeight.w700),
                           ),
                         );
                       }
@@ -810,7 +841,7 @@ class _QueueSheet extends StatelessWidget {
                           final meta = DriveUtils.getTrackMeta(track);
                           final isActive = i == _nowPlaying.queueIndex;
                           final trackKey = track.id ?? '';
-                          
+
                           // Get duration from cache
                           Duration? duration;
                           final durationMs = knownTrackDurationsMs[trackKey];
@@ -827,12 +858,17 @@ class _QueueSheet extends StatelessWidget {
                             behavior: HitTestBehavior.opaque,
                             child: Container(
                               margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 12),
                               decoration: BoxDecoration(
-                                color: isActive ? Colors.white.withOpacity(0.11) : Colors.transparent,
+                                color: isActive
+                                    ? Colors.white.withOpacity(0.11)
+                                    : Colors.transparent,
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: isActive ? safe[1].withOpacity(0.40) : Colors.transparent,
+                                  color: isActive
+                                      ? safe[1].withOpacity(0.40)
+                                      : Colors.transparent,
                                 ),
                               ),
                               child: Row(
@@ -850,14 +886,16 @@ class _QueueSheet extends StatelessWidget {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           meta['title'] ?? 'Unknown',
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: GoogleFonts.inter(
-                                            color: isActive ? safe[1] : _textPri,
+                                            color:
+                                                isActive ? safe[1] : _textPri,
                                             fontSize: 15,
                                             fontWeight: FontWeight.w800,
                                           ),
@@ -889,7 +927,8 @@ class _QueueSheet extends StatelessWidget {
                                       ),
                                     ),
                                   if (isActive)
-                                    Icon(Icons.graphic_eq_rounded, color: safe[1], size: 22),
+                                    Icon(Icons.graphic_eq_rounded,
+                                        color: safe[1], size: 22),
                                 ],
                               ),
                             ),
@@ -913,6 +952,7 @@ class _PlayerFloatingBar extends StatelessWidget {
   final AudioPlayer player;
   final VoidCallback onNext;
   final VoidCallback onPrev;
+  final VoidCallback onOpenNowPlaying;
   final Future<void> Function(drive.File track, int index) onPlayFromQueue;
   final bool isDarkMode;
   final Map<String, int> knownTrackDurationsMs;
@@ -922,32 +962,12 @@ class _PlayerFloatingBar extends StatelessWidget {
     required this.player,
     required this.onNext,
     required this.onPrev,
+    required this.onOpenNowPlaying,
     required this.onPlayFromQueue,
     required this.isDarkMode,
     required this.knownTrackDurationsMs,
     required this.knownTrackDurations,
   });
-
-  void _openFullScreenPlayer(BuildContext context) {
-    HapticFeedback.selectionClick();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF0A0A0F),
-      barrierColor: Colors.black.withOpacity(0.76),
-      builder: (_) {
-        return _FullScreenPlayerSheet(
-          player: player,
-          onNext: onNext,
-          onPrev: onPrev,
-          onPlayFromQueue: onPlayFromQueue,
-          isDarkMode: isDarkMode,
-          knownTrackDurationsMs: knownTrackDurationsMs,
-          knownTrackDurations: knownTrackDurations,
-        );
-      },
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -966,27 +986,32 @@ class _PlayerFloatingBar extends StatelessWidget {
           builder: (_, stateSnap) {
             final state = stateSnap.data;
             final isPlaying = state?.playing ?? false;
-            final isLoading = state?.processingState == ProcessingState.loading ||
-                state?.processingState == ProcessingState.buffering;
+            final isLoading =
+                state?.processingState == ProcessingState.loading ||
+                    state?.processingState == ProcessingState.buffering;
 
-            final glowColor = isDarkMode ? _neonPurple : _neonMagenta;
-            final bgColor = isDarkMode ? _darkBg : _lightSurface;
+            final glowColor = isDarkMode ? _neonPurple : _lightAccentPink;
+            final bgColor = isDarkMode ? _darkBg : _lightGlassBase;
 
             return GestureDetector(
-              onTap: () => _openFullScreenPlayer(context),
+              onTap: () {
+                HapticFeedback.selectionClick();
+                onOpenNowPlaying();
+              },
               behavior: HitTestBehavior.opaque,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(20),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
                   child: Container(
-                    height: 86,
+                    height: 82,
                     decoration: BoxDecoration(
-                      color: isDarkMode 
-                          ? bgColor.withOpacity(0.40) 
-                          : _lightSurface.withOpacity(0.72),
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: glowColor.withOpacity(0.30), width: 1),
+                      color: isDarkMode
+                          ? bgColor.withOpacity(0.40)
+                          : _lightGlassBase.withOpacity(0.82),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: glowColor.withOpacity(0.30), width: 1),
                       boxShadow: [
                         BoxShadow(
                           color: glowColor.withOpacity(0.18),
@@ -998,7 +1023,7 @@ class _PlayerFloatingBar extends StatelessWidget {
                     child: Stack(
                       children: [
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 11, 10, 13),
+                          padding: const EdgeInsets.fromLTRB(10, 9, 10, 10),
                           child: Row(
                             children: [
                               AspectRatio(
@@ -1007,31 +1032,35 @@ class _PlayerFloatingBar extends StatelessWidget {
                                   heroTag: 'now_playing_artwork',
                                   coverUrl: coverUrl,
                                   colors: colors,
-                                  size: 62,
+                                  size: 58,
                                   radius: kArtworkRadius,
                                   shadow: false,
                                 ),
                               ),
-                              const SizedBox(width: 14),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 240),
                                   switchInCurve: Curves.easeOutCubic,
                                   switchOutCurve: Curves.easeInCubic,
                                   child: Column(
-                                    key: ValueKey('${track.id}_${meta['title']}_${meta['artist']}'),
+                                    key: ValueKey(
+                                        '${track.id}_${meta['title']}_${meta['artist']}'),
                                     mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         meta['title'] ?? 'Unknown',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: GoogleFonts.inter(
-                                          fontSize: 15.5,
+                                          fontSize: 15,
                                           height: 1.05,
                                           fontWeight: FontWeight.w800,
-                                          color: Colors.white,
+                                          color: isDarkMode
+                                              ? Colors.white
+                                              : _lightText,
                                           letterSpacing: -0.35,
                                         ),
                                       ),
@@ -1041,17 +1070,19 @@ class _PlayerFloatingBar extends StatelessWidget {
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: GoogleFonts.inter(
-                                          fontSize: 12.5,
+                                          fontSize: 12,
                                           height: 1.05,
                                           fontWeight: FontWeight.w600,
-                                          color: Colors.white.withOpacity(0.70),
+                                          color: isDarkMode
+                                              ? Colors.white.withOpacity(0.70)
+                                              : _lightSubtext,
                                         ),
                                       ),
                                     ],
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 6),
                               GestureDetector(
                                 onTap: () {
                                   if (isLoading) return;
@@ -1060,11 +1091,13 @@ class _PlayerFloatingBar extends StatelessWidget {
                                 },
                                 behavior: HitTestBehavior.opaque,
                                 child: Container(
-                                  width: 42,
-                                  height: 42,
+                                  width: 40,
+                                  height: 40,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.20),
+                                    color: isDarkMode
+                                        ? Colors.white.withOpacity(0.20)
+                                        : _lightAccentPink.withOpacity(0.12),
                                     shape: BoxShape.circle,
                                   ),
                                   child: isLoading
@@ -1072,14 +1105,20 @@ class _PlayerFloatingBar extends StatelessWidget {
                                           width: 20,
                                           height: 20,
                                           child: CircularProgressIndicator(
-                                            color: Colors.white,
-                                            strokeWidth: 2.3,
+                                            color: isDarkMode
+                                                ? Colors.white
+                                                : _lightAccentPink,
+                                            strokeWidth: 2.1,
                                           ),
                                         )
                                       : Icon(
-                                          isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                          color: Colors.white,
-                                          size: 32,
+                                          isPlaying
+                                              ? Icons.pause_rounded
+                                              : Icons.play_arrow_rounded,
+                                          color: isDarkMode
+                                              ? Colors.white
+                                              : _lightAccentPink,
+                                          size: 30,
                                         ),
                                 ),
                               ),
@@ -1091,14 +1130,20 @@ class _PlayerFloatingBar extends StatelessWidget {
                                 },
                                 behavior: HitTestBehavior.opaque,
                                 child: Container(
-                                  width: 42,
-                                  height: 42,
+                                  width: 40,
+                                  height: 40,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.20),
+                                    color: isDarkMode
+                                        ? Colors.white.withOpacity(0.20)
+                                        : _lightAccentPink.withOpacity(0.12),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: Icon(Icons.skip_next_rounded, color: Colors.white, size: 29),
+                                  child: Icon(Icons.skip_next_rounded,
+                                      color: isDarkMode
+                                          ? Colors.white
+                                          : _lightAccentPink,
+                                      size: 27),
                                 ),
                               ),
                             ],
@@ -1107,7 +1152,7 @@ class _PlayerFloatingBar extends StatelessWidget {
                         Positioned(
                           left: 14,
                           right: 14,
-                          bottom: 5,
+                          bottom: 4,
                           child: StreamBuilder<Duration>(
                             stream: player.positionStream,
                             builder: (_, posSnap) {
@@ -1117,15 +1162,20 @@ class _PlayerFloatingBar extends StatelessWidget {
                                   final dur = durSnap.data ?? Duration.zero;
                                   final pos = posSnap.data ?? Duration.zero;
                                   final prog = dur.inMilliseconds > 0
-                                      ? (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0)
+                                      ? (pos.inMilliseconds /
+                                              dur.inMilliseconds)
+                                          .clamp(0.0, 1.0)
                                       : 0.0;
                                   return ClipRRect(
                                     borderRadius: BorderRadius.circular(99),
-                                    child: LinearProgressIndicator(
+                                      child: LinearProgressIndicator(
                                       value: prog,
-                                      minHeight: 3,
-                                      backgroundColor: Colors.white.withOpacity(0.15),
-                                      valueColor: AlwaysStoppedAnimation<Color>(glowColor.withOpacity(0.80)),
+                                      minHeight: 2.5,
+                                      backgroundColor: isDarkMode
+                                          ? Colors.white.withOpacity(0.15)
+                                          : _lightAccentPink.withOpacity(0.10),
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                          glowColor.withOpacity(0.80)),
                                     ),
                                   );
                                 },
@@ -1262,6 +1312,10 @@ class _FullScreenPlayerSheet extends StatefulWidget {
   final VoidCallback onPrev;
   final Future<void> Function(drive.File track, int index) onPlayFromQueue;
   final bool isDarkMode;
+  final bool embedded;
+  final String albumName;
+  final bool isLiked;
+  final VoidCallback onToggleLiked;
   final Map<String, int> knownTrackDurationsMs;
   final Map<String, Duration> knownTrackDurations;
 
@@ -1271,6 +1325,10 @@ class _FullScreenPlayerSheet extends StatefulWidget {
     required this.onPrev,
     required this.onPlayFromQueue,
     required this.isDarkMode,
+    this.embedded = false,
+    this.albumName = '',
+    required this.isLiked,
+    required this.onToggleLiked,
     required this.knownTrackDurationsMs,
     required this.knownTrackDurations,
   });
@@ -1282,7 +1340,8 @@ class _FullScreenPlayerSheet extends StatefulWidget {
 class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
   String _formatTime(Duration d) {
     final hours = d.inHours;
-    final minutes = d.inMinutes.remainder(60).toString().padLeft(hours > 0 ? 2 : 1, '0');
+    final minutes =
+        d.inMinutes.remainder(60).toString().padLeft(hours > 0 ? 2 : 1, '0');
     final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
 
     if (hours > 0) return '$hours:$minutes:$seconds';
@@ -1460,16 +1519,21 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
           builder: (context, stateSnap) {
             final state = stateSnap.data;
             final isPlaying = state?.playing ?? false;
-            final isLoading = state?.processingState == ProcessingState.loading ||
-                state?.processingState == ProcessingState.buffering;
+            final isLoading =
+                state?.processingState == ProcessingState.loading ||
+                    state?.processingState == ProcessingState.buffering;
 
             return ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(36)),
+              borderRadius: widget.embedded
+                  ? BorderRadius.zero
+                  : const BorderRadius.vertical(top: Radius.circular(36)),
               child: Stack(
                 children: [
                   Positioned.fill(
                     child: Container(
-                      color: widget.isDarkMode ? const Color(0xFF050508) : _lightBg,
+                      color: widget.isDarkMode
+                          ? const Color(0xFF050508)
+                          : _lightBg,
                       child: widget.isDarkMode
                           ? _NeonBlobBackground(isDarkMode: true)
                           : _NeonBlobBackground(isDarkMode: false),
@@ -1539,34 +1603,49 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                       top: false,
                       child: Padding(
                         padding: EdgeInsets.fromLTRB(
-                          26,
-                          12,
-                          26,
-                          math.max(22, media.padding.bottom + 6),
+                          22,
+                          10,
+                          22,
+                          math.max(20, media.padding.bottom + 4),
                         ),
                         child: Column(
                           children: [
-                            Container(
-                              width: 42,
-                              height: 5,
-                              decoration: BoxDecoration(
-                                color: widget.isDarkMode ? Colors.white.withOpacity(0.34) : _lightAccentPink.withOpacity(0.34),
-                                borderRadius: BorderRadius.circular(99),
+                            if (!widget.embedded) ...[
+                              Container(
+                                width: 42,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: widget.isDarkMode
+                                      ? Colors.white.withOpacity(0.34)
+                                      : _lightAccentPink.withOpacity(0.34),
+                                  borderRadius: BorderRadius.circular(99),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 18),
+                              const SizedBox(height: 14),
+                            ] else
+                              const SizedBox(height: 14),
                             Row(
                               children: [
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: () => Navigator.maybePop(context),
-                                  icon: Icon(Icons.keyboard_arrow_down_rounded, color: widget.isDarkMode ? Colors.white.withOpacity(0.88) : _lightText.withOpacity(0.88), size: 34),
-                                ),
+                                widget.embedded
+                                    ? const SizedBox(width: 40)
+                                    : IconButton(
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () =>
+                                            Navigator.maybePop(context),
+                                        icon: Icon(
+                                            Icons.keyboard_arrow_down_rounded,
+                                            color: widget.isDarkMode
+                                                ? Colors.white.withOpacity(0.88)
+                                                : _lightText.withOpacity(0.88),
+                                            size: 32),
+                                      ),
                                 const Spacer(),
                                 Text(
                                   'NOW PLAYING',
                                   style: GoogleFonts.inter(
-                                    color: widget.isDarkMode ? Colors.white.withOpacity(0.46) : _lightSubtext.withOpacity(0.60),
+                                    color: widget.isDarkMode
+                                        ? Colors.white.withOpacity(0.46)
+                                        : _lightSubtext.withOpacity(0.60),
                                     fontSize: 10,
                                     fontWeight: FontWeight.w700,
                                     letterSpacing: 1.1,
@@ -1575,12 +1654,17 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                 const Spacer(),
                                 IconButton(
                                   visualDensity: VisualDensity.compact,
-                                  onPressed: () => _openMoreActions(context, meta, colors),
-                                  icon: Icon(Icons.more_horiz_rounded, color: widget.isDarkMode ? Colors.white.withOpacity(0.88) : _lightText.withOpacity(0.88), size: 30),
+                                  onPressed: () =>
+                                      _openMoreActions(context, meta, colors),
+                                  icon: Icon(Icons.more_horiz_rounded,
+                                      color: widget.isDarkMode
+                                          ? Colors.white.withOpacity(0.88)
+                                          : _lightText.withOpacity(0.88),
+                                      size: 30),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 18),
+                            const SizedBox(height: 14),
                             Expanded(
                               flex: 8,
                               child: Center(
@@ -1591,14 +1675,15 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                     heroTag: 'now_playing_artwork',
                                     coverUrl: coverUrl,
                                     colors: colors,
-                                    size: math.min(artworkSize + 18, width - 48),
+                                    size:
+                                        math.min(artworkSize + 12, width - 56),
                                     shadow: true,
                                     isPlaying: isPlaying,
                                   ),
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 22),
+                            const SizedBox(height: 18),
                             Column(
                               children: [
                                 Text(
@@ -1607,29 +1692,50 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                   overflow: TextOverflow.ellipsis,
                                   textAlign: TextAlign.center,
                                   style: GoogleFonts.inter(
-                                    fontSize: 28,
+                                    fontSize: 26,
                                     height: 1.05,
                                     fontWeight: FontWeight.w900,
-                                    color: widget.isDarkMode ? Colors.white.withOpacity(0.95) : _lightText,
+                                    color: widget.isDarkMode
+                                        ? Colors.white.withOpacity(0.95)
+                                        : _lightText,
                                     letterSpacing: -0.85,
                                   ),
                                 ),
-                                const SizedBox(height: 7),
+                                const SizedBox(height: 6),
                                 Text(
                                   meta['artist'] ?? 'Unknown Artist',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   textAlign: TextAlign.center,
                                   style: GoogleFonts.inter(
-                                    fontSize: 17,
+                                    fontSize: 15.5,
                                     fontWeight: FontWeight.w600,
-                                    color: widget.isDarkMode ? Colors.white.withOpacity(0.60) : _lightSubtext,
+                                    color: widget.isDarkMode
+                                        ? Colors.white.withOpacity(0.60)
+                                        : _lightSubtext,
                                     letterSpacing: -0.15,
                                   ),
                                 ),
+                                if (widget.albumName.isNotEmpty) ...[
+                                  const SizedBox(height: 5),
+                                  Text(
+                                    widget.albumName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: widget.isDarkMode
+                                          ? Colors.white.withOpacity(0.42)
+                                          : _lightSubtext.withOpacity(0.92),
+                                      letterSpacing: -0.05,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 18),
                             StreamBuilder<Duration>(
                               stream: widget.player.positionStream,
                               builder: (_, posSnap) {
@@ -1638,33 +1744,73 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                   builder: (_, durSnap) {
                                     final pos = posSnap.data ?? Duration.zero;
                                     final dur = durSnap.data ?? Duration.zero;
-                                    final max = dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
-                                    final value = pos.inMilliseconds.toDouble().clamp(0.0, max);
-                                    final remaining = dur > pos ? dur - pos : Duration.zero;
+                                    final max = dur.inMilliseconds > 0
+                                        ? dur.inMilliseconds.toDouble()
+                                        : 1.0;
+                                    final value = pos.inMilliseconds
+                                        .toDouble()
+                                        .clamp(0.0, max);
+                                    final remaining =
+                                        dur > pos ? dur - pos : Duration.zero;
 
                                     return Column(
                                       children: [
-                                        Slider(
-                                          value: value,
-                                          max: max,
-                                          activeColor: widget.isDarkMode ? Colors.white.withOpacity(0.88) : _lightAccentPink,
-                                          inactiveColor: widget.isDarkMode ? Colors.white.withOpacity(0.14) : _lightAccentPink.withOpacity(0.15),
-                                          onChanged: (v) {
-                                            widget.player.seek(Duration(milliseconds: v.toInt()));
-                                          },
+                                        SliderTheme(
+                                          data: SliderTheme.of(context)
+                                              .copyWith(
+                                            trackHeight: 2.6,
+                                            thumbShape:
+                                                const RoundSliderThumbShape(
+                                              enabledThumbRadius: 5.0,
+                                            ),
+                                            overlayShape:
+                                                const RoundSliderOverlayShape(
+                                              overlayRadius: 10,
+                                            ),
+                                          ),
+                                          child: Slider(
+                                            value: value,
+                                            max: max,
+                                            activeColor: widget.isDarkMode
+                                                ? Colors.white.withOpacity(0.88)
+                                                : _lightAccentPink,
+                                            inactiveColor: widget.isDarkMode
+                                                ? Colors.white.withOpacity(0.14)
+                                                : _lightAccentPink
+                                                    .withOpacity(0.15),
+                                            onChanged: (v) {
+                                              widget.player.seek(Duration(
+                                                  milliseconds: v.toInt()));
+                                            },
+                                          ),
                                         ),
                                         Transform.translate(
                                           offset: const Offset(0, -7),
                                           child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
                                             children: [
                                               Text(
                                                 _formatTime(pos),
-                                                style: GoogleFonts.inter(color: widget.isDarkMode ? Colors.white.withOpacity(0.52) : _lightSubtext, fontSize: 11.5, fontWeight: FontWeight.w700),
+                                                style: GoogleFonts.inter(
+                                                    color: widget.isDarkMode
+                                                        ? Colors.white
+                                                            .withOpacity(0.52)
+                                                        : _lightSubtext,
+                                                    fontSize: 11.5,
+                                                    fontWeight:
+                                                        FontWeight.w700),
                                               ),
                                               Text(
                                                 '-${_formatTime(remaining)}',
-                                                style: GoogleFonts.inter(color: widget.isDarkMode ? Colors.white.withOpacity(0.52) : _lightSubtext, fontSize: 11.5, fontWeight: FontWeight.w700),
+                                                style: GoogleFonts.inter(
+                                                    color: widget.isDarkMode
+                                                        ? Colors.white
+                                                            .withOpacity(0.52)
+                                                        : _lightSubtext,
+                                                    fontSize: 11.5,
+                                                    fontWeight:
+                                                        FontWeight.w700),
                                               ),
                                             ],
                                           ),
@@ -1675,12 +1821,16 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                 );
                               },
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 8),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 IconButton(
-                                  icon: Icon(Icons.skip_previous_rounded, size: 54, color: widget.isDarkMode ? Colors.white.withOpacity(0.92) : _lightAccentPink.withOpacity(0.92)),
+                                  icon: Icon(Icons.skip_previous_rounded,
+                                      size: 46,
+                                      color: widget.isDarkMode
+                                          ? Colors.white.withOpacity(0.92)
+                                          : _lightAccentPink.withOpacity(0.92)),
                                   onPressed: () {
                                     HapticFeedback.selectionClick();
                                     widget.onPrev();
@@ -1691,34 +1841,48 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                   onTap: () {
                                     if (isLoading) return;
                                     HapticFeedback.mediumImpact();
-                                    isPlaying ? widget.player.pause() : widget.player.play();
-                                  },
-                                  behavior: HitTestBehavior.opaque,
-                                  child: Container(
-                                    width: 86,
-                                    height: 86,
+                                    isPlaying
+                                        ? widget.player.pause()
+                                        : widget.player.play();
+                                },
+                                behavior: HitTestBehavior.opaque,
+                                child: Container(
+                                    width: 74,
+                                    height: 74,
                                     decoration: BoxDecoration(
-                                      color: widget.isDarkMode ? Colors.white.withOpacity(0.12) : _lightAccentPink.withOpacity(0.12),
+                                      color: widget.isDarkMode
+                                          ? Colors.white.withOpacity(0.10)
+                                          : _lightAccentPink.withOpacity(0.10),
                                       shape: BoxShape.circle,
                                     ),
                                     child: Center(
                                       child: isLoading
                                           ? const SizedBox(
-                                              width: 48,
-                                              height: 48,
-                                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.8),
+                                              width: 36,
+                                              height: 36,
+                                              child: CircularProgressIndicator(
+                                                  color: Colors.white,
+                                                  strokeWidth: 2.1),
                                             )
                                           : Icon(
-                                              isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                              color: widget.isDarkMode ? Colors.white : _lightAccentPink,
-                                              size: 72,
+                                              isPlaying
+                                                  ? Icons.pause_rounded
+                                                  : Icons.play_arrow_rounded,
+                                              color: widget.isDarkMode
+                                                  ? Colors.white
+                                                  : _lightAccentPink,
+                                              size: 54,
                                             ),
                                     ),
                                   ),
                                 ),
                                 const SizedBox(width: 28),
                                 IconButton(
-                                  icon: Icon(Icons.skip_next_rounded, size: 54, color: widget.isDarkMode ? Colors.white.withOpacity(0.92) : _lightAccentPink.withOpacity(0.92)),
+                                  icon: Icon(Icons.skip_next_rounded,
+                                      size: 46,
+                                      color: widget.isDarkMode
+                                          ? Colors.white.withOpacity(0.92)
+                                          : _lightAccentPink.withOpacity(0.92)),
                                   onPressed: () {
                                     HapticFeedback.selectionClick();
                                     widget.onNext();
@@ -1726,16 +1890,26 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 12),
                             _SystemVolumeSlider(isDarkMode: widget.isDarkMode),
-                            const SizedBox(height: 18),
+                            const SizedBox(height: 12),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                               children: [
                                 _PremiumActionButton(
+                                  icon: widget.isLiked
+                                      ? Icons.favorite_rounded
+                                      : Icons.favorite_border_rounded,
+                                  label: 'Liked',
+                                  onTap: widget.onToggleLiked,
+                                  colors: colors,
+                                  isDarkMode: widget.isDarkMode,
+                                ),
+                                _PremiumActionButton(
                                   icon: Icons.chat_bubble_outline_rounded,
                                   label: 'Lyrics',
-                                  onTap: () => _openLyricsSheet(context, meta, colors),
+                                  onTap: () =>
+                                      _openLyricsSheet(context, meta, colors),
                                   colors: colors,
                                   isDarkMode: widget.isDarkMode,
                                 ),
@@ -1787,29 +1961,39 @@ class _PremiumActionButton extends StatelessWidget {
       },
       behavior: HitTestBehavior.opaque,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(20),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             decoration: BoxDecoration(
-              color: isDarkMode ? Colors.white.withOpacity(0.10) : _lightSurface.withOpacity(0.60),
-              borderRadius: BorderRadius.circular(22),
+              color: isDarkMode
+                  ? Colors.white.withOpacity(0.10)
+                  : _lightSurface.withOpacity(0.60),
+              borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: isDarkMode ? Colors.white.withOpacity(0.08) : _lightAccentPink.withOpacity(0.20),
+                color: isDarkMode
+                    ? Colors.white.withOpacity(0.08)
+                    : _lightAccentPink.withOpacity(0.20),
                 width: 0.5,
               ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, color: isDarkMode ? Colors.white.withOpacity(0.92) : _lightAccentPink, size: 22),
+                Icon(icon,
+                    color: isDarkMode
+                        ? Colors.white.withOpacity(0.92)
+                        : _lightAccentPink,
+                    size: 21),
                 const SizedBox(height: 4),
                 Text(
                   label,
                   style: GoogleFonts.inter(
-                    color: isDarkMode ? Colors.white.withOpacity(0.70) : _lightText,
-                    fontSize: 11,
+                    color: isDarkMode
+                        ? Colors.white.withOpacity(0.70)
+                        : _lightText,
+                    fontSize: 10.5,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.2,
                   ),
@@ -1881,14 +2065,25 @@ class _SystemVolumeSliderState extends State<_SystemVolumeSlider> {
 
   @override
   Widget build(BuildContext context) {
-    return Slider(
-      value: _volume,
-      activeColor: widget.isDarkMode ? Colors.white.withOpacity(0.64) : _lightAccentPink,
-      inactiveColor: widget.isDarkMode ? Colors.white.withOpacity(0.12) : _lightAccentPink.withOpacity(0.15),
-      onChanged: (v) {
-        VolumeController.instance.setVolume(v);
-        setState(() => _volume = v);
-      },
+    return SliderTheme(
+      data: SliderTheme.of(context).copyWith(
+        trackHeight: 2.6,
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5.0),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+      ),
+      child: Slider(
+        value: _volume,
+        activeColor: widget.isDarkMode
+            ? Colors.white.withOpacity(0.60)
+            : _lightAccentPink,
+        inactiveColor: widget.isDarkMode
+            ? Colors.white.withOpacity(0.10)
+            : _lightAccentPink.withOpacity(0.14),
+        onChanged: (v) {
+          VolumeController.instance.setVolume(v);
+          setState(() => _volume = v);
+        },
+      ),
     );
   }
 }

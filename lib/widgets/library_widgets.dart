@@ -3,11 +3,17 @@ part of '../main.dart';
 class _MetadataStat extends StatelessWidget {
   final String label;
   final int value;
+  final bool isDarkMode;
 
-  const _MetadataStat({required this.label, required this.value});
+  const _MetadataStat({
+    required this.label,
+    required this.value,
+    this.isDarkMode = true,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final darkMode = isDarkMode;
     return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -15,7 +21,7 @@ class _MetadataStat extends StatelessWidget {
           Text(
             value.toString(),
             style: GoogleFonts.inter(
-              color: _textPri,
+              color: darkMode ? _textPri : _lightText,
               fontSize: 18,
               fontWeight: FontWeight.w900,
             ),
@@ -24,7 +30,7 @@ class _MetadataStat extends StatelessWidget {
           Text(
             label,
             style: GoogleFonts.inter(
-              color: _textSub,
+              color: darkMode ? _textSub : _lightSubtext,
               fontSize: 11,
               fontWeight: FontWeight.w800,
             ),
@@ -37,17 +43,22 @@ class _MetadataStat extends StatelessWidget {
 
 class _SettingsSectionTitle extends StatelessWidget {
   final String title;
+  final bool isDarkMode;
 
-  const _SettingsSectionTitle({required this.title});
+  const _SettingsSectionTitle({
+    required this.title,
+    this.isDarkMode = true,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final darkMode = isDarkMode;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Text(
         title,
         style: GoogleFonts.inter(
-          color: _textPri,
+          color: darkMode ? _textPri : _lightText,
           fontSize: 18,
           fontWeight: FontWeight.w900,
           letterSpacing: -0.3,
@@ -63,6 +74,7 @@ class _SettingsPrimaryButton extends StatelessWidget {
   final Color accent;
   final bool destructive;
   final VoidCallback onTap;
+  final bool isDarkMode;
 
   const _SettingsPrimaryButton({
     required this.label,
@@ -70,12 +82,20 @@ class _SettingsPrimaryButton extends StatelessWidget {
     required this.accent,
     required this.onTap,
     this.destructive = false,
+    this.isDarkMode = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    final background = destructive ? Colors.white.withOpacity(0.12) : accent;
-    final foreground = destructive ? _textPri : Colors.black;
+    final darkMode = isDarkMode;
+    final background = destructive
+        ? (darkMode
+            ? Colors.white.withOpacity(0.12)
+            : Colors.black.withOpacity(0.05))
+        : accent;
+    final foreground = destructive
+        ? (darkMode ? _textPri : _lightText)
+        : Colors.black;
 
     return GestureDetector(
       onTap: onTap,
@@ -117,22 +137,29 @@ class _SettingsInfoCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final Color accent;
+  final bool isDarkMode;
 
   const _SettingsInfoCard({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.accent,
+    this.isDarkMode = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    final darkMode = isDarkMode;
     return GlassyContainer(
       radius: 22,
       padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 10),
-      customColor: Colors.white.withOpacity(0.070),
-      customBorder: Colors.white.withOpacity(0.12),
+      customColor: darkMode
+          ? Colors.white.withOpacity(0.070)
+          : _lightGlassBase.withOpacity(0.72),
+      customBorder: darkMode
+          ? Colors.white.withOpacity(0.12)
+          : Colors.black.withOpacity(0.08),
       child: Row(
         children: [
           Container(
@@ -152,7 +179,7 @@ class _SettingsInfoCard extends StatelessWidget {
                 Text(
                   title,
                   style: GoogleFonts.inter(
-                    color: _textPri,
+                    color: darkMode ? _textPri : _lightText,
                     fontSize: 14,
                     fontWeight: FontWeight.w900,
                   ),
@@ -161,7 +188,7 @@ class _SettingsInfoCard extends StatelessWidget {
                 Text(
                   subtitle,
                   style: GoogleFonts.inter(
-                    color: _textSub,
+                    color: darkMode ? _textSub : _lightSubtext,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     height: 1.35,
@@ -184,6 +211,7 @@ class _SettingsSwitchRow extends StatelessWidget {
   final bool enabled;
   final Color accent;
   final ValueChanged<bool> onChanged;
+  final bool isDarkMode;
 
   const _SettingsSwitchRow({
     required this.icon,
@@ -193,10 +221,12 @@ class _SettingsSwitchRow extends StatelessWidget {
     required this.accent,
     required this.onChanged,
     this.enabled = true,
+    this.isDarkMode = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    final darkMode = isDarkMode;
     final effectiveAccent = enabled ? accent : _textSub;
 
     return Padding(
@@ -204,8 +234,12 @@ class _SettingsSwitchRow extends StatelessWidget {
       child: GlassyContainer(
         radius: 22,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-        customColor: Colors.white.withOpacity(0.065),
-        customBorder: Colors.white.withOpacity(0.10),
+        customColor: darkMode
+            ? Colors.white.withOpacity(0.065)
+            : _lightGlassBase.withOpacity(0.72),
+        customBorder: darkMode
+            ? Colors.white.withOpacity(0.10)
+            : Colors.black.withOpacity(0.08),
         child: Row(
           children: [
             Container(
@@ -225,7 +259,9 @@ class _SettingsSwitchRow extends StatelessWidget {
                   Text(
                     title,
                     style: GoogleFonts.inter(
-                      color: enabled ? _textPri : _textSub,
+                      color: enabled
+                          ? (darkMode ? _textPri : _lightText)
+                          : (darkMode ? _textSub : _lightSubtext),
                       fontSize: 14,
                       fontWeight: FontWeight.w900,
                     ),
@@ -234,7 +270,7 @@ class _SettingsSwitchRow extends StatelessWidget {
                   Text(
                     subtitle,
                     style: GoogleFonts.inter(
-                      color: _textSub,
+                      color: darkMode ? _textSub : _lightSubtext,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                       height: 1.35,
@@ -262,6 +298,7 @@ class _SettingsActionRow extends StatelessWidget {
   final Color accent;
   final VoidCallback? onTap;
   final bool destructive;
+  final bool isDarkMode;
 
   const _SettingsActionRow({
     required this.icon,
@@ -270,10 +307,12 @@ class _SettingsActionRow extends StatelessWidget {
     required this.accent,
     required this.onTap,
     this.destructive = false,
+    this.isDarkMode = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    final darkMode = isDarkMode;
     final enabled = onTap != null;
     final effectiveAccent = destructive ? Colors.redAccent : accent;
 
@@ -287,10 +326,14 @@ class _SettingsActionRow extends StatelessWidget {
           radius: 20,
           padding: const EdgeInsets.all(14),
           margin: const EdgeInsets.only(bottom: 10),
-          customColor: Colors.white.withOpacity(0.065),
+          customColor: darkMode
+              ? Colors.white.withOpacity(0.065)
+              : _lightGlassBase.withOpacity(0.72),
           customBorder: destructive
               ? Colors.redAccent.withOpacity(0.30)
-              : Colors.white.withOpacity(0.11),
+              : (darkMode
+                  ? Colors.white.withOpacity(0.11)
+                  : Colors.black.withOpacity(0.08)),
           child: Row(
             children: [
               Icon(icon, color: effectiveAccent, size: 22),
@@ -302,7 +345,7 @@ class _SettingsActionRow extends StatelessWidget {
                     Text(
                       title,
                       style: GoogleFonts.inter(
-                        color: _textPri,
+                        color: darkMode ? _textPri : _lightText,
                         fontSize: 14,
                         fontWeight: FontWeight.w900,
                       ),
@@ -311,7 +354,7 @@ class _SettingsActionRow extends StatelessWidget {
                     Text(
                       subtitle,
                       style: GoogleFonts.inter(
-                        color: _textSub,
+                        color: darkMode ? _textSub : _lightSubtext,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         height: 1.35,
@@ -321,7 +364,7 @@ class _SettingsActionRow extends StatelessWidget {
                 ),
               ),
               Icon(Icons.chevron_right_rounded,
-                  color: _textSub.withOpacity(0.8)),
+                  color: (darkMode ? _textSub : _lightSubtext).withOpacity(0.8)),
             ],
           ),
         ),
@@ -468,80 +511,81 @@ class _HomeAlbumCard extends StatelessWidget {
     final coverUrl = info['coverUrl'] ?? info['cover'] ?? '';
     final gradient = getAlbumGradient(name);
 
-    final glowColor = isDarkMode ? Colors.white : _neonMagenta;
+    final glowColor = isDarkMode ? Colors.white : _lightAccentPink;
 
     return RepaintBoundary(
       child: GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 138,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(kArtworkRadius),
-              child: Container(
-                width: 138,
-                height: 138,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(kArtworkRadius),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: gradient,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: isDarkMode
-                          ? glowColor.withOpacity(0.15)
-                          : _lightAccentPink.withOpacity(0.12),
-                      blurRadius: 24,
-                      offset: const Offset(0, 8),
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: 138,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(kArtworkRadius),
+                child: Container(
+                  width: 138,
+                  height: 138,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(kArtworkRadius),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: gradient,
                     ),
-                  ],
-                ),
-                child: coverUrl.isNotEmpty
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(kArtworkRadius),
-                        child: _coverImage(
-                          coverUrl,
-                          fit: BoxFit.cover,
-                          cacheSize: 160,
-                          errorBuilder: (_, __, ___) => _AlbumFallbackCover(
-                            name: name,
-                            colors: gradient,
-                            radius: kArtworkRadius,
+                    boxShadow: [
+                      BoxShadow(
+                        color: isDarkMode
+                            ? glowColor.withOpacity(0.15)
+                            : _lightAccentPink.withOpacity(0.12),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: coverUrl.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(kArtworkRadius),
+                          child: _coverImage(
+                            coverUrl,
+                            fit: BoxFit.cover,
+                            cacheSize: 160,
+                            errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+                              name: name,
+                              colors: gradient,
+                              radius: kArtworkRadius,
+                            ),
                           ),
-                        ),
-                      )
-                    : _AlbumFallbackCover(
-                        name: name, colors: gradient, radius: kArtworkRadius),
+                        )
+                      : _AlbumFallbackCover(
+                          name: name, colors: gradient, radius: kArtworkRadius),
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(
-                color: isDarkMode ? glowColor : _lightText,
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
+              const SizedBox(height: 10),
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  color: isDarkMode ? glowColor : _lightText,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              'Album',
-              style: GoogleFonts.inter(
-                color: isDarkMode ? glowColor.withOpacity(0.7) : _lightSubtext,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
+              const SizedBox(height: 3),
+              Text(
+                'Album',
+                style: GoogleFonts.inter(
+                  color:
+                      isDarkMode ? glowColor.withOpacity(0.7) : _lightSubtext,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -967,84 +1011,84 @@ class _AlbumGridCard extends StatelessWidget {
     final coverUrl = album['cover'] ?? '';
     final gradient = getAlbumGradient(name);
 
-    final glowColor = isDarkMode ? Colors.white : _neonMagenta;
+    final glowColor = isDarkMode ? Colors.white : _lightAccentPink;
 
     return RepaintBoundary(
       child: GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: GlassyContainer(
-        radius: 22,
-        padding: const EdgeInsets.all(12),
-        customColor: (isDarkMode ? _darkBg : _lightBg).withOpacity(0.065),
-        customBorder: glowColor.withOpacity(0.10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(kArtworkRadius),
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(kArtworkRadius),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: gradient,
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: GlassyContainer(
+          radius: 22,
+          padding: const EdgeInsets.all(12),
+          customColor: (isDarkMode ? _darkBg : _lightBg).withOpacity(0.065),
+          customBorder: glowColor.withOpacity(0.10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(kArtworkRadius),
+                  child: Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(kArtworkRadius),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: gradient,
+                      ),
                     ),
-                  ),
-                  child: coverUrl.isNotEmpty
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(kArtworkRadius),
-                          child: _coverImage(
-                            coverUrl,
-                            fit: BoxFit.cover,
-                            cacheSize: 240,
-                            errorBuilder: (_, __, ___) => _AlbumFallbackCover(
-                              name: name,
-                              colors: gradient,
-                              radius: kArtworkRadius,
+                    child: coverUrl.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(kArtworkRadius),
+                            child: _coverImage(
+                              coverUrl,
+                              fit: BoxFit.cover,
+                              cacheSize: 240,
+                              errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+                                name: name,
+                                colors: gradient,
+                                radius: kArtworkRadius,
+                              ),
                             ),
-                          ),
-                        )
-                      : _AlbumFallbackCover(
-                          name: name,
-                          colors: gradient,
-                          radius: kArtworkRadius),
+                          )
+                        : _AlbumFallbackCover(
+                            name: name,
+                            colors: gradient,
+                            radius: kArtworkRadius),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-                color: glowColor,
+              const SizedBox(height: 12),
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                  color: glowColor,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              artist.isNotEmpty
-                  ? artist
-                  : year.isNotEmpty
-                      ? year
-                      : genre.isNotEmpty
-                          ? genre
-                          : 'Album',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(
-                  color: glowColor.withOpacity(0.7),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600),
-            ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                artist.isNotEmpty
+                    ? artist
+                    : year.isNotEmpty
+                        ? year
+                        : genre.isNotEmpty
+                            ? genre
+                            : 'Album',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                    color: glowColor.withOpacity(0.7),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -1100,7 +1144,9 @@ class _TrackGlassTile extends StatefulWidget {
   final int index;
   final String? coverUrl;
   final String? durationText;
+  final bool? isLiked;
   final VoidCallback onTap;
+  final VoidCallback? onToggleLiked;
   final VoidCallback? onPlayNext;
   final VoidCallback? onAddToQueue;
   final bool isDarkMode;
@@ -1112,7 +1158,9 @@ class _TrackGlassTile extends StatefulWidget {
     required this.index,
     this.coverUrl,
     this.durationText,
+    this.isLiked,
     required this.onTap,
+    this.onToggleLiked,
     this.onPlayNext,
     this.onAddToQueue,
     required this.isDarkMode,
@@ -1160,15 +1208,23 @@ class _TrackGlassTileState extends State<_TrackGlassTile>
     return ListenableBuilder(
       listenable: _nowPlaying,
       builder: (ctx, _) {
+        final darkMode = widget.isDarkMode;
         final activeId = _nowPlaying.track == null
             ? null
             : DriveUtils.effectiveId(_nowPlaying.track!);
         final isActive = activeId != null &&
             activeId == DriveUtils.effectiveId(widget.track);
+        final isLiked = widget.isLiked ?? false;
         final meta = DriveUtils.getTrackMeta(widget.track);
         final colors = _safeColors(_nowPlaying.dynamicColors);
-        final glowColor = _neonMagenta;
-        final titleColor = widget.isDarkMode ? Colors.white : glowColor;
+        final glowColor = darkMode ? _neonPurple : _lightAccentPink;
+        final titleColor = isActive
+            ? glowColor
+            : (darkMode ? Colors.white : _lightText);
+        final subColor =
+            isActive ? glowColor.withOpacity(0.82) : (darkMode ? _textSub : _lightSubtext);
+        final baseRowColor =
+            darkMode ? Colors.white.withOpacity(0.03) : Colors.black.withOpacity(0.03);
 
         return ScaleTransition(
           scale: _scaleAnim,
@@ -1184,7 +1240,7 @@ class _TrackGlassTileState extends State<_TrackGlassTile>
                     ? glowColor.withOpacity(0.08)
                     : _tapped
                         ? glowColor.withOpacity(0.04)
-                        : Colors.white.withOpacity(0.03),
+                        : baseRowColor,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
                   color: isActive
@@ -1240,8 +1296,7 @@ class _TrackGlassTileState extends State<_TrackGlassTile>
                           meta['artist']!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style:
-                              GoogleFonts.inter(fontSize: 12, color: _textSub),
+                          style: GoogleFonts.inter(fontSize: 12, color: subColor),
                         ),
                       ],
                     ),
@@ -1250,11 +1305,26 @@ class _TrackGlassTileState extends State<_TrackGlassTile>
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (widget.onToggleLiked != null)
+                        IconButton(
+                          tooltip: isLiked ? 'Unlike' : 'Like',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          splashRadius: 20,
+                          icon: Icon(
+                            isLiked
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            color: isLiked ? _pink : subColor,
+                            size: 20,
+                          ),
+                          onPressed: widget.onToggleLiked,
+                        ),
                       if ((widget.durationText ?? '').isNotEmpty)
                         Text(
                           widget.durationText!,
                           style: GoogleFonts.inter(
-                            color: isActive ? glowColor : _textSub,
+                            color: isActive ? glowColor : subColor,
                             fontSize: 12,
                             fontWeight: FontWeight.w900,
                           ),
@@ -1263,8 +1333,8 @@ class _TrackGlassTileState extends State<_TrackGlassTile>
                           (widget.onAddToQueue != null))
                         PopupMenuButton<int>(
                           tooltip: 'Track options',
-                          icon: const Icon(Icons.more_vert_rounded,
-                              color: _textSub, size: 20),
+                          icon:
+                              Icon(Icons.more_vert_rounded, color: subColor, size: 20),
                           padding: EdgeInsets.zero,
                           splashRadius: 20,
                           color: const Color(0xFF1A1A22),
@@ -1405,14 +1475,14 @@ class _TrackIcon extends StatelessWidget {
 class _NavBarItem extends StatelessWidget {
   final IconData icon;
   final String label;
-  final Color accent;
+  final bool isDarkMode;
   final bool isSelected;
   final VoidCallback onTap;
 
   const _NavBarItem({
     required this.icon,
     required this.label,
-    required this.accent,
+    required this.isDarkMode,
     required this.isSelected,
     required this.onTap,
   });
@@ -1429,11 +1499,12 @@ class _NavBarItem extends StatelessWidget {
         label: label,
         selected: isSelected,
         button: true,
-        child: AnimatedContainer(
+          child: AnimatedContainer(
           duration: const Duration(milliseconds: 130),
           curve: Curves.linear,
-          width: 58,
-          height: 48,
+          width: double.infinity,
+          height: 34,
+          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
           decoration: BoxDecoration(
             color: Colors.transparent,
             borderRadius: BorderRadius.circular(999),
@@ -1442,12 +1513,102 @@ class _NavBarItem extends StatelessWidget {
               width: 1,
             ),
           ),
-          child: Icon(
-            icon,
-            color: isSelected ? accent : accent.withOpacity(0.60),
-            size: 24,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  color: isDarkMode
+                      ? (isSelected
+                          ? Colors.white
+                          : Colors.white.withOpacity(0.72))
+                      : (isSelected
+                          ? _lightNavIconPink
+                          : _lightNavIconPink.withOpacity(0.70)),
+                  size: 17,
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 8.0,
+                    fontWeight: FontWeight.w800,
+                    color: isDarkMode
+                        ? (isSelected
+                            ? Colors.white
+                            : Colors.white.withOpacity(0.72))
+                        : (isSelected
+                            ? _lightNavIconPink
+                            : _lightNavIconPink.withOpacity(0.70)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SearchModePill extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final bool isDarkMode;
+  final VoidCallback onTap;
+
+  const _SearchModePill({
+    required this.label,
+    required this.isSelected,
+    required this.isDarkMode,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: isDarkMode
+              ? (isSelected
+                  ? Colors.white.withOpacity(0.12)
+                  : Colors.white.withOpacity(0.03))
+              : (isSelected
+                  ? _lightAccentPink.withOpacity(0.12)
+                  : Colors.black.withOpacity(0.03)),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: isDarkMode
+                ? (isSelected
+                    ? Colors.white.withOpacity(0.24)
+                    : Colors.white.withOpacity(0.12))
+                : (isSelected
+                    ? _lightAccentPink.withOpacity(0.28)
+                    : Colors.black.withOpacity(0.10)),
+          ),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              color: isDarkMode
+                  ? (isSelected ? Colors.white : Colors.white.withOpacity(0.72))
+                  : (isSelected
+                      ? _lightAccentPink
+                      : Colors.black.withOpacity(0.60)),
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
       ),
     );
   }

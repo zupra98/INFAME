@@ -7,12 +7,13 @@ class DriveAudioSource extends StreamAudioSource {
   final String fileId;
   final String token;
 
-  DriveAudioSource(this.fileId, this.token);
+  DriveAudioSource(this.fileId, this.token, {super.tag});
 
   @override
   Future<StreamAudioResponse> request([int? start, int? end]) async {
     final client = http.Client();
-    final uri = Uri.parse('https://www.googleapis.com/drive/v3/files/$fileId?alt=media');
+    final uri = Uri.parse(
+        'https://www.googleapis.com/drive/v3/files/$fileId?alt=media');
 
     final headers = {
       'Authorization': 'Bearer $token',
@@ -44,7 +45,8 @@ class DriveAudioSource extends StreamAudioSource {
     return _handleResponse(response, start);
   }
 
-  Future<StreamAudioResponse> _handleResponse(http.StreamedResponse res, int? start) async {
+  Future<StreamAudioResponse> _handleResponse(
+      http.StreamedResponse res, int? start) async {
     if (res.statusCode != 200 && res.statusCode != 206) {
       final body = await res.stream.bytesToString();
       throw Exception('Drive API Error: ${res.statusCode} - $body');

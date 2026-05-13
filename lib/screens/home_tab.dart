@@ -104,8 +104,8 @@ extension BuildHomeTabExtension on _MainScreenState {
                     child: _HomeGreetingHeader(
                       greeting: _greeting(),
                       colors: colors,
-                      onSearch: () => _selectRootTab(1),
-                      onSources: () => _selectRootTab(2),
+                      onSearch: () => _selectRootTab(2),
+                      onSources: _openSettingsSheet,
                       onSettings: _openSettingsSheet,
                       isDarkMode: _isDarkMode,
                     ),
@@ -131,7 +131,7 @@ extension BuildHomeTabExtension on _MainScreenState {
                   )
                 else if (_albums.isEmpty)
                   SliverFillRemaining(
-                    child: _HomeEmptyState(onSources: () => _selectRootTab(2)),
+                    child: _HomeEmptyState(onSources: _openSettingsSheet),
                   )
                 else ...[
                   // Recently Played row

@@ -10,6 +10,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:audio_service/audio_service.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
@@ -27,6 +28,7 @@ import 'package:musix/models/track_metadata.dart';
 import 'state/now_playing.dart';
 import 'services/google_auth_client.dart';
 import 'services/drive_audio_source.dart';
+import 'services/infame_audio_handler.dart';
 import 'widgets/glassy_container.dart';
 
 part 'services/drive_utils.dart';
@@ -41,9 +43,15 @@ part 'widgets/player_widgets.dart';
 // These keep main.dart in sync even if lib/models/track_metadata.dart only has
 // fromJson/toJson and plain fields.
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  assert(() {
+    debugPrint('main start');
+    return true;
+  }());
   FlutterForegroundTask.initCommunicationPort();
+  await _initAudioService();
+  await _loadStartupThemePreference();
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -55,7 +63,57 @@ void main() {
   );
 
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  assert(() {
+    debugPrint('runApp start');
+    return true;
+  }());
   runApp(const MusixApp());
+}
+
+InfameAudioHandler? _infameAudioHandlerInstance;
+bool _initialDarkMode = true;
+const _themeModePrefsKey = 'infame_theme_mode';
+
+Future<void> _loadStartupThemePreference() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    _initialDarkMode = prefs.getString(_themeModePrefsKey) != 'light';
+  } catch (_) {}
+}
+
+Future<void> _initAudioService() async {
+  assert(() {
+    debugPrint('audio_service init start');
+    return true;
+  }());
+
+  try {
+    final concreteHandler = InfameAudioHandler();
+    _infameAudioHandlerInstance = concreteHandler;
+    await AudioService.init(
+      builder: () => concreteHandler,
+      config: AudioServiceConfig(
+        androidNotificationChannelId: 'com.example.musix.audio',
+        androidNotificationChannelName: 'Infame playback',
+        // Do not set androidNotificationOngoing when keeping the
+        // foreground service alive on pause. audio_service asserts against
+        // ongoing=true + stopForegroundOnPause=false, which was causing init
+        // to fail and leaving the handler null.
+        androidNotificationOngoing: false,
+        androidStopForegroundOnPause: false,
+        androidResumeOnClick: true,
+      ),
+    ).timeout(const Duration(seconds: 6));
+    assert(() {
+      debugPrint('audio_service init done');
+      return true;
+    }());
+  } catch (e, st) {
+    _infameAudioHandlerInstance = null;
+    debugPrint(
+        'audio_service init failed, continuing without notification controls: $e');
+    debugPrint('$st');
+  }
 }
 
 // ─── Neon-Blob Palette ───────────────────────────────────────────────────────
@@ -63,13 +121,15 @@ const _neonPurple = Color(0xFF4B118C);
 const _neonMagenta = Color(0xFFEE09A5);
 
 // Artwork radius for album/song covers (sharp look like real album artwork)
-const double kArtworkRadius = 0.0;
+const double kArtworkRadius = 8.0;
 
 // Light Mode
 const _lightBg = Color(0xFFFFFBFF);
 const _lightSurface = Color(0xFFFFFFFF);
 const _lightSurfaceSoft = Color(0xFFFFF1F8);
+const _lightGlassBase = Color(0xFFF0EAF1);
 const _lightAccentPink = Color(0xFFFF4FA3);
+const _lightNavIconPink = Color(0xFFFF4FA3);
 const _lightAccentPurple = Color(0xFF9B5CFF);
 const _lightAccentMagenta = Color(0xFFE94DFF);
 const _lightText = Color(0xFF20151E);
@@ -418,6 +478,9 @@ const _albumColorPrefsKey = 'musix_album_color_cache_v1';
 const _libraryBrainPrefsKey = 'musix_library_brain_v1';
 const _playHistoryPrefsKey = 'musix_play_history_v1';
 const _lastPlayedPrefsKey = 'musix_last_played_v1';
+const _likedTracksPrefsKey = 'musix_liked_tracks_v1';
+const _artistImageCachePrefsKey = 'musix_artist_image_cache_v1';
+const _artistImageFailurePrefsKey = 'musix_artist_image_failures_v1';
 
 const glassModePerformance = 'performance';
 const _glassModeBalanced = 'balanced';
@@ -676,20 +739,32 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   GoogleSignInAccount? _user;
   final AudioPlayer _player = AudioPlayer();
+  StreamSubscription<ProcessingState>? _processingStateSub;
+  StreamSubscription<PlayerState>? _playerStateSub;
+  StreamSubscription<PlaybackEvent>? _playbackEventSub;
+  bool _audioServicePlayerAttached = false;
+  final Map<String, String> _artistImageCache = {};
+  final Map<String, int> _artistImageFailureCooldown = {};
+  final Set<String> _artistImageFetchInFlight = {};
+  bool _artistImagePrefetchRunning = false;
   bool _changingTrack = false;
   bool _handlingTrackCompletion = false;
   int _playRequestSerial = 0;
   bool _signingIn = false;
   int _navIndex = 0;
   late final PageController _pageController;
-  bool _isDarkMode = true;
+  bool _isDarkMode = _initialDarkMode;
+  bool _isShuttingDownPlayback = false;
 
   String _libraryQuery = '';
   final TextEditingController _librarySearchController =
       TextEditingController();
+  String _searchQuery = '';
+  String _searchViewMode = 'all';
+  final TextEditingController _searchSearchController = TextEditingController();
   final Map<String, String> _librarySearchTextCache = {};
   String _librarySortMode = 'az';
   bool _libraryGridMode = true;
@@ -710,6 +785,8 @@ class _MainScreenState extends State<MainScreen> {
   String _cachedLibraryArtistsKey = '';
   Map<String, List<Map<String, String>>> _cachedLibraryArtists = {};
   List<String> _cachedVisibleLibraryArtists = [];
+  Set<String> _likedTrackKeys = {};
+  int _likedTracksVersion = 0;
 
   List<Map<String, String>> _albums = [];
   bool _loadingSaved = true;
@@ -803,16 +880,46 @@ class _MainScreenState extends State<MainScreen> {
   drive.File? _exploreFolder;
   List<drive.File> _exploreItems = [];
   bool _loadingExplore = false;
+  bool _driveExplorerAutoLoadAttempted = false;
+  String? _driveExplorerLoadError;
   final List<drive.File> _navStack = [];
+  StateSetter? _driveSettingsSetState;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: [drive.DriveApi.driveReadonlyScope],
   );
+  AudioPlayer? _audioServiceAttachedPlayer;
+
+  InfameAudioHandler? get _infameAudioHandler {
+    return _infameAudioHandlerInstance;
+  }
+
+  void _ensureAudioServicePlayerAttached() {
+    final handler = _infameAudioHandlerInstance;
+    if (handler == null) {
+      debugPrint('AudioService handler is null, cannot attach player');
+      return;
+    }
+    if (_audioServicePlayerAttached &&
+        identical(_audioServiceAttachedPlayer, _player)) {
+      handler.syncPlaybackStateFromPlayer();
+      return;
+    }
+
+    handler.attachPlayer(_player);
+    _audioServicePlayerAttached = true;
+    _audioServiceAttachedPlayer = _player;
+    debugPrint('AudioService handler attached to player');
+    handler.syncPlaybackStateFromPlayer();
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pageController = PageController(initialPage: _navIndex);
     _loadUiPreferences();
+    _loadLikedTracks();
+    _loadArtistImageCache();
     _loadLastPlayed();
     _loadCachedMetadata();
     _loadLibraryBrainAndHistory();
@@ -828,10 +935,49 @@ class _MainScreenState extends State<MainScreen> {
       _initForegroundMetadataService();
     });
 
-    _player.processingStateStream.listen((state) {
+    _processingStateSub = _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) {
         _handleTrackCompleted();
       }
+      _syncAudioServicePlaybackState();
+    });
+    _playerStateSub = _player.playerStateStream.listen((_) {
+      _syncAudioServicePlaybackState();
+    });
+    _playbackEventSub = _player.playbackEventStream.listen((_) {
+      _syncAudioServicePlaybackState();
+    });
+
+    final handler = _infameAudioHandlerInstance;
+    handler?.bindCallbacks(
+      onPlay: () async {
+        await _player.play();
+        _infameAudioHandlerInstance?.syncPlaybackStateFromPlayer();
+        _syncAudioServicePlaybackState();
+      },
+      onPause: () async {
+        await _player.pause();
+        _syncAudioServicePlaybackState();
+      },
+      onStop: () async {
+        await _player.stop();
+        _syncAudioServicePlaybackState();
+      },
+      onSeek: (position) async {
+        await _player.seek(position);
+        _syncAudioServicePlaybackState();
+      },
+      onSkipToNext: () async {
+        await _playNext();
+      },
+      onSkipToPrevious: () async {
+        await _playPrev();
+      },
+    );
+    _searchSearchController.text = _searchQuery;
+    _ensureAudioServicePlayerAttached();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureAudioServicePlayerAttached();
     });
   }
 
@@ -839,10 +985,43 @@ class _MainScreenState extends State<MainScreen> {
   void dispose() {
     FlutterForegroundTask.removeTaskDataCallback(_onMetadataTaskData);
     _metadataProgressPoller?.cancel();
+    _processingStateSub?.cancel();
+    _playerStateSub?.cancel();
+    _playbackEventSub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_shutdownPlaybackService());
     _pageController.dispose();
-    _player.dispose();
     _librarySearchController.dispose();
+    _searchSearchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      unawaited(_shutdownPlaybackService());
+    }
+  }
+
+  Future<void> _shutdownPlaybackService() async {
+    if (_isShuttingDownPlayback) return;
+    _isShuttingDownPlayback = true;
+    debugPrint('App detached: stopping playback service');
+
+    try {
+      if (_infameAudioHandlerInstance != null) {
+        await _infameAudioHandlerInstance!.stop();
+      } else {
+        await _player.stop();
+      }
+    } catch (e) {
+      debugPrint('Player stop failed during shutdown: $e');
+    }
+
+    debugPrint('AudioService stopped');
+
+    _audioServicePlayerAttached = false;
+    _audioServiceAttachedPlayer = null;
   }
 
   Future<void> _loadCachedMetadata() async {
@@ -964,6 +1143,15 @@ class _MainScreenState extends State<MainScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       glassModeNotifier.value = _glassMode;
+      final savedThemeMode = prefs.getString(_themeModePrefsKey);
+      if (savedThemeMode != null) {
+        final nextDarkMode = savedThemeMode != 'light';
+        if (mounted && _isDarkMode != nextDarkMode) {
+          setState(() => _isDarkMode = nextDarkMode);
+        } else {
+          _isDarkMode = nextDarkMode;
+        }
+      }
 
       final colorsRaw = prefs.getString(_albumColorPrefsKey);
       if (colorsRaw != null && colorsRaw.isNotEmpty) {
@@ -1017,7 +1205,8 @@ class _MainScreenState extends State<MainScreen> {
             (data['libraryViewMode'] ?? 'albums').toString();
         _libraryViewMode = (savedLibraryViewMode == 'albums' ||
                 savedLibraryViewMode == 'songs' ||
-                savedLibraryViewMode == 'artists')
+                savedLibraryViewMode == 'artists' ||
+                savedLibraryViewMode == 'liked')
             ? savedLibraryViewMode
             : 'albums';
       });
@@ -1026,6 +1215,10 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _saveUiPreferences() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _themeModePrefsKey,
+      _isDarkMode ? 'dark' : 'light',
+    );
     await prefs.setString(
       _uiPrefsKey,
       json.encode({
@@ -1040,6 +1233,369 @@ class _MainScreenState extends State<MainScreen> {
         'libraryViewMode': _libraryViewMode,
       }),
     );
+  }
+
+  Future<void> _loadLikedTracks() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final liked =
+          prefs.getStringList(_likedTracksPrefsKey) ?? const <String>[];
+      final nextLiked = <String>{};
+      for (final key in liked) {
+        final trimmed = key.trim();
+        if (trimmed.isNotEmpty) nextLiked.add(trimmed);
+      }
+      _likedTrackKeys = nextLiked;
+      _likedTracksVersion++;
+      _invalidateLibraryBrowseCache();
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  Future<void> _saveLikedTracks() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final liked = _likedTrackKeys.toList()..sort();
+      await prefs.setStringList(_likedTracksPrefsKey, liked);
+    } catch (_) {}
+  }
+
+  String _normalizeArtistText(String value) {
+    return value.trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String _artistImageCacheKey(String artistName) {
+    return _normalizeArtistText(artistName).toLowerCase();
+  }
+
+  bool _isBadArtistName(String value) {
+    final text = _normalizeArtistText(value);
+    if (text.isEmpty) return true;
+
+    final lower = text.toLowerCase();
+    if (lower == 'unknown' ||
+        lower == 'unknown artist' ||
+        lower == 'various artists' ||
+        lower == 'various artist' ||
+        lower == 'miscellaneous') {
+      return true;
+    }
+
+    if (text.length > 80) return true;
+    return false;
+  }
+
+  String _stripFeaturedArtistSuffix(String value) {
+    final text = _normalizeArtistText(value);
+    if (text.isEmpty) return '';
+
+    final match = RegExp(
+      r'^(.*?)\s+(?:feat\.?|ft\.?|featuring|with)\s+.+$',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (match != null) {
+      final cleaned = _normalizeArtistText(match.group(1) ?? '');
+      if (cleaned.isNotEmpty) return cleaned;
+    }
+
+    return text;
+  }
+
+  String _canonicalArtistName({
+    String? albumArtist,
+    String? trackArtist,
+    String? albumName,
+  }) {
+    final albumCandidate = _normalizeArtistText(albumArtist ?? '');
+    if (albumCandidate.isNotEmpty && !_isBadArtistName(albumCandidate)) {
+      final cleaned = _stripFeaturedArtistSuffix(albumCandidate);
+      if (cleaned.isNotEmpty && !_isBadArtistName(cleaned)) return cleaned;
+      return albumCandidate;
+    }
+
+    final folderGuess = _artistAlbumFromFolder(albumName ?? '')['artist'] ?? '';
+    if (folderGuess.isNotEmpty && !_isBadArtistName(folderGuess)) {
+      final cleaned = _stripFeaturedArtistSuffix(folderGuess);
+      if (cleaned.isNotEmpty && !_isBadArtistName(cleaned)) return cleaned;
+      return folderGuess;
+    }
+
+    final trackCandidate = _normalizeArtistText(trackArtist ?? '');
+    if (trackCandidate.isEmpty || _isBadArtistName(trackCandidate)) return '';
+    final cleaned = _stripFeaturedArtistSuffix(trackCandidate);
+    return cleaned.isNotEmpty ? cleaned : trackCandidate;
+  }
+
+  String _artistSearchTextForRecord(Map<String, String> record) {
+    final albumId = record['albumId'] ?? '';
+    final brain = albumId.isNotEmpty ? _libraryBrain[albumId] : null;
+    final canonical = _canonicalArtistName(
+      albumArtist: record['albumArtist'] ?? brain?['artist'] ?? '',
+      trackArtist: record['artist'] ?? '',
+      albumName: record['albumName'] ?? brain?['displayName'] ?? '',
+    );
+
+    return [
+      canonical,
+      record['artist'] ?? '',
+      record['albumArtist'] ?? '',
+      record['albumName'] ?? '',
+      record['album'] ?? '',
+      record['name'] ?? '',
+      record['title'] ?? '',
+      brain?['artist'] ?? '',
+      brain?['displayName'] ?? '',
+    ].join(' ').toLowerCase();
+  }
+
+  List<String> _canonicalArtistNamesFromLibrary() {
+    final names = <String>{};
+    for (final record in _libraryTrackIndex.values) {
+      final albumId = record['albumId'] ?? '';
+      final brain = albumId.isNotEmpty ? _libraryBrain[albumId] : null;
+      final canonical = _canonicalArtistName(
+        albumArtist: record['albumArtist'] ?? brain?['artist'] ?? '',
+        trackArtist: record['artist'] ?? '',
+        albumName: record['albumName'] ?? brain?['displayName'] ?? '',
+      );
+      if (canonical.isNotEmpty) names.add(canonical);
+    }
+
+    final list = names.toList();
+    list.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return list;
+  }
+
+  Future<void> _loadArtistImageCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rawCache = prefs.getString(_artistImageCachePrefsKey);
+      final rawFailures = prefs.getString(_artistImageFailurePrefsKey);
+
+      final nextCache = <String, String>{};
+      if (rawCache != null && rawCache.isNotEmpty) {
+        final decoded = json.decode(rawCache);
+        if (decoded is Map) {
+          decoded.forEach((key, value) {
+            if (key is String && value is String) {
+              final trimmedKey = key.trim();
+              final trimmedValue = value.trim();
+              if (trimmedKey.isNotEmpty && trimmedValue.isNotEmpty) {
+                nextCache[trimmedKey] = trimmedValue;
+              }
+            }
+          });
+        }
+      }
+
+      final nextFailures = <String, int>{};
+      if (rawFailures != null && rawFailures.isNotEmpty) {
+        final decoded = json.decode(rawFailures);
+        if (decoded is Map) {
+          decoded.forEach((key, value) {
+            if (key is! String) return;
+            final until = int.tryParse(value.toString());
+            if (until != null && until > 0) {
+              nextFailures[key.trim()] = until;
+            }
+          });
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _artistImageCache
+          ..clear()
+          ..addAll(nextCache);
+        _artistImageFailureCooldown
+          ..clear()
+          ..addAll(nextFailures);
+      });
+      _queueArtistImagePrefetch();
+    } catch (_) {}
+  }
+
+  Future<void> _saveArtistImageCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _artistImageCachePrefsKey,
+        json.encode(_artistImageCache),
+      );
+      await prefs.setString(
+        _artistImageFailurePrefsKey,
+        json.encode(_artistImageFailureCooldown),
+      );
+    } catch (_) {}
+  }
+
+  bool _artistImageLookupOnCooldown(String artistName) {
+    final key = _artistImageCacheKey(artistName);
+    final until = _artistImageFailureCooldown[key] ?? 0;
+    return until > DateTime.now().millisecondsSinceEpoch;
+  }
+
+  void _markArtistImageLookupFailed(String artistName) {
+    final key = _artistImageCacheKey(artistName);
+    if (key.isEmpty) return;
+    _artistImageFailureCooldown[key] =
+        DateTime.now().add(const Duration(hours: 12)).millisecondsSinceEpoch;
+  }
+
+  void _markArtistImageLookupSucceeded(String artistName, String imageUrl) {
+    final key = _artistImageCacheKey(artistName);
+    if (key.isEmpty) return;
+    _artistImageCache[key] = imageUrl;
+    _artistImageFailureCooldown.remove(key);
+  }
+
+  Future<String?> _fetchArtistImageUrl(String artistName) async {
+    final trimmed = _normalizeArtistText(artistName);
+    if (trimmed.isEmpty || _isBadArtistName(trimmed)) return null;
+
+    final query = Uri.encodeComponent(trimmed);
+    final uris = <Uri>[
+      Uri.parse(
+        'https://www.theaudiodb.com/api/v2/json/search/artist/$query',
+      ),
+      Uri.parse(
+        'https://www.theaudiodb.com/api/v1/json/2/search.php?s=$query',
+      ),
+    ];
+
+    String? chooseUrl(Map item) {
+      final candidates = [
+        item['strArtistThumb'],
+        item['strArtistLogo'],
+        item['strArtistCutOut'],
+        item['strArtistWideThumb'],
+        item['strArtistBanner'],
+        item['strArtistFanart1'],
+      ];
+      for (final candidate in candidates) {
+        final value = candidate?.toString().trim() ?? '';
+        if (value.isNotEmpty) return value;
+      }
+      return null;
+    }
+
+    for (final uri in uris) {
+      try {
+        final response =
+            await http.get(uri).timeout(const Duration(seconds: 8));
+        if (response.statusCode != 200) continue;
+
+        final decoded = json.decode(response.body);
+        if (decoded is! Map) continue;
+
+        final data = decoded['data'] ?? decoded['artists'];
+        if (data is! List || data.isEmpty) continue;
+
+        for (final item in data) {
+          if (item is! Map) continue;
+          final imageUrl = chooseUrl(item);
+          if (imageUrl != null && imageUrl.isNotEmpty) return imageUrl;
+        }
+      } catch (_) {
+        continue;
+      }
+    }
+
+    return null;
+  }
+
+  Future<void> _ensureArtistImageCached(String artistName) async {
+    final normalized = _normalizeArtistText(artistName);
+    if (normalized.isEmpty || _isBadArtistName(normalized)) return;
+
+    final cacheKey = _artistImageCacheKey(normalized);
+    if (cacheKey.isEmpty) return;
+    if (_artistImageCache.containsKey(cacheKey)) return;
+    if (_artistImageFetchInFlight.contains(cacheKey)) return;
+    if (_artistImageLookupOnCooldown(normalized)) return;
+
+    _artistImageFetchInFlight.add(cacheKey);
+    try {
+      final imageUrl = await _fetchArtistImageUrl(normalized);
+      if (!mounted) return;
+
+      setState(() {
+        if (imageUrl != null && imageUrl.isNotEmpty) {
+          _markArtistImageLookupSucceeded(normalized, imageUrl);
+        } else {
+          _markArtistImageLookupFailed(normalized);
+        }
+      });
+      await _saveArtistImageCache();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _markArtistImageLookupFailed(normalized));
+        await _saveArtistImageCache();
+      }
+    } finally {
+      _artistImageFetchInFlight.remove(cacheKey);
+    }
+  }
+
+  void _queueArtistImagePrefetch() {
+    if (_artistImagePrefetchRunning) return;
+    if (_libraryTrackIndex.isEmpty) return;
+    _artistImagePrefetchRunning = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        _artistImagePrefetchRunning = false;
+        return;
+      }
+      unawaited(_prefetchArtistImages());
+    });
+  }
+
+  Future<void> _prefetchArtistImages() async {
+    try {
+      final artists = _canonicalArtistNamesFromLibrary();
+      final missing = artists
+          .where((artist) {
+            final key = _artistImageCacheKey(artist);
+            return key.isNotEmpty &&
+                !_artistImageCache.containsKey(key) &&
+                !_artistImageLookupOnCooldown(artist);
+          })
+          .take(24)
+          .toList();
+
+      for (final artist in missing) {
+        if (!mounted) break;
+        await _ensureArtistImageCached(artist);
+        await Future<void>.delayed(const Duration(milliseconds: 180));
+      }
+    } finally {
+      _artistImagePrefetchRunning = false;
+    }
+  }
+
+  bool _isTrackLiked(drive.File file) {
+    final key = _trackKey(file);
+    return key.isNotEmpty && _likedTrackKeys.contains(key);
+  }
+
+  void _toggleLikedTrack(drive.File file) {
+    final key = _trackKey(file);
+    if (key.isEmpty) return;
+
+    final liked = !_likedTrackKeys.contains(key);
+    setState(() {
+      if (liked) {
+        _likedTrackKeys.add(key);
+      } else {
+        _likedTrackKeys.remove(key);
+      }
+      _likedTracksVersion++;
+    });
+    _invalidateLibraryBrowseCache();
+    _saveLikedTracks();
+    _nowPlaying.refresh();
+    _showSuccess(liked ? 'Added to liked songs' : 'Removed from liked songs');
   }
 
   Future<void> _saveAlbumColorCache() async {
@@ -1075,6 +1631,7 @@ class _MainScreenState extends State<MainScreen> {
         // Repair old records so Songs/Artists inherit current album covers and
         // durations without needing the album to be opened first.
         _repairLibraryTrackIndexFromAlbums();
+        _queueArtistImagePrefetch();
 
         for (final entry in _libraryTrackIndex.entries) {
           final durationMs =
@@ -1086,6 +1643,7 @@ class _MainScreenState extends State<MainScreen> {
 
         await _saveLibraryTrackIndex();
         _invalidateLibraryBrowseCache();
+        _queueArtistImagePrefetch();
       }
     } catch (_) {}
   }
@@ -1423,6 +1981,12 @@ class _MainScreenState extends State<MainScreen> {
               'name': track.name ?? '',
               'albumId': album['id'] ?? '',
               'albumName': album['name'] ?? '',
+              'albumArtist': _canonicalArtistName(
+                albumArtist: album['artist'],
+                trackArtist:
+                    meta?.artist ?? trackMeta['artist']?.toString() ?? '',
+                albumName: album['name'] ?? '',
+              ),
               'albumCover': albumCover,
               'mimeType': track.mimeType ?? '',
               'thumbnailLink': track.thumbnailLink ?? '',
@@ -1467,6 +2031,7 @@ class _MainScreenState extends State<MainScreen> {
       _libraryTrackIndex.addAll(newIndex);
       await _saveLibraryTrackIndex();
       _invalidateLibraryBrowseCache();
+      _queueArtistImagePrefetch();
 
       if (!mounted) return;
 
@@ -1543,6 +2108,58 @@ class _MainScreenState extends State<MainScreen> {
     return '';
   }
 
+  Uri? _safeArtUri(String? source) {
+    final value = source?.trim() ?? '';
+    if (value.isEmpty) return null;
+    final parsed = Uri.tryParse(value);
+    if (parsed != null && parsed.hasScheme) return parsed;
+    return Uri.file(value);
+  }
+
+  MediaItem _mediaItemForCurrentTrack(
+    drive.File file, {
+    required List<drive.File> queue,
+    required int queueIndex,
+    required String coverUrl,
+  }) {
+    final fileId = DriveUtils.effectiveId(file) ?? _trackKey(file);
+    final trackRecord = fileId.isNotEmpty ? _libraryTrackIndex[fileId] : null;
+    final meta = DriveUtils.getTrackMeta(file);
+    final albumName =
+        (trackRecord?['album'] ?? trackRecord?['albumName'] ?? '').trim();
+    final title =
+        (meta['title'] ?? trackRecord?['title'] ?? file.name ?? '').trim();
+    final artist = (meta['artist'] ?? trackRecord?['artist'] ?? '').trim();
+
+    return MediaItem(
+      id: fileId,
+      title: title.isNotEmpty ? title : (file.name ?? 'Unknown Track'),
+      artist: artist.isNotEmpty ? artist : 'Unknown Artist',
+      album: albumName,
+      artUri: _safeArtUri(
+        _resolveCurrentTrackCover(
+          file,
+          queue: queue,
+          idx: queueIndex,
+          fallbackCoverUrl: coverUrl,
+        ),
+      ),
+      duration: _knownTrackDurations[_trackKey(file)],
+    );
+  }
+
+  void _syncAudioServicePlaybackState() {
+    final handler = _infameAudioHandlerInstance;
+    if (handler == null) return;
+    handler.updatePlaybackState(
+      isPlaying: _player.playing,
+      processingState: _player.processingState,
+      position: _player.position,
+      bufferedPosition: _player.bufferedPosition,
+      speed: _player.speed,
+    );
+  }
+
   void _indexTracksForAlbum(
       Map<String, String> album, List<drive.File> tracks) {
     for (final track in tracks) {
@@ -1562,6 +2179,11 @@ class _MainScreenState extends State<MainScreen> {
         'name': track.name ?? '',
         'albumId': album['id'] ?? '',
         'albumName': album['name'] ?? '',
+        'albumArtist': _canonicalArtistName(
+          albumArtist: album['artist'],
+          trackArtist: meta?.artist ?? trackMeta['artist']?.toString() ?? '',
+          albumName: album['name'] ?? '',
+        ),
         'albumCover': albumCover,
         'mimeType': track.mimeType ?? '',
         'thumbnailLink': track.thumbnailLink ?? '',
@@ -1758,6 +2380,7 @@ class _MainScreenState extends State<MainScreen> {
 
       _invalidateHomeBrowseCache();
       _buildBasicLibraryBrain(save: false);
+      _queueArtistImagePrefetch();
     } catch (_) {}
   }
 
@@ -1787,11 +2410,11 @@ class _MainScreenState extends State<MainScreen> {
       final folderGuess = _artistAlbumFromFolder(name);
       final cover = album['cover'] ?? existing['cover'] ?? '';
       final dateAdded = album['dateAdded'] ?? existing['dateAdded'] ?? now;
-      final savedArtist = _cleanBrainValue(album['artist']).isNotEmpty
-          ? album['artist']!
-          : _cleanBrainValue(existing['artist']).isNotEmpty
-              ? existing['artist']!
-              : folderGuess['artist'] ?? '';
+      final savedArtist = _canonicalArtistName(
+        albumArtist: album['artist'],
+        trackArtist: existing['artist'] ?? '',
+        albumName: name,
+      );
       final savedDisplayName = _cleanBrainValue(album['displayName']).isNotEmpty
           ? album['displayName']!
           : _cleanBrainValue(existing['displayName']).isNotEmpty
@@ -1869,11 +2492,11 @@ class _MainScreenState extends State<MainScreen> {
         ? commonAlbum
         : folderGuess['album'] ?? folderName;
     final commonArtist = _mostCommon(artists);
-    final artist = commonArtist.isNotEmpty
-        ? commonArtist
-        : _cleanBrainValue(existing['artist']).isNotEmpty
-            ? existing['artist']!
-            : folderGuess['artist'] ?? '';
+    final artist = _canonicalArtistName(
+      albumArtist: commonArtist,
+      trackArtist: existing['artist'] ?? '',
+      albumName: folderName,
+    );
     final rawYear = _mostCommon(years).isNotEmpty
         ? _mostCommon(years)
         : _yearFromText('$displayName $folderName');
@@ -2182,8 +2805,18 @@ class _MainScreenState extends State<MainScreen> {
 
     final permission =
         await FlutterForegroundTask.checkNotificationPermission();
+    assert(() {
+      debugPrint('Notification permission status: $permission');
+      return true;
+    }());
     if (permission != NotificationPermission.granted) {
       await FlutterForegroundTask.requestNotificationPermission();
+      final afterRequest =
+          await FlutterForegroundTask.checkNotificationPermission();
+      assert(() {
+        debugPrint('Notification permission after request: $afterRequest');
+        return true;
+      }());
     }
   }
 
@@ -2321,10 +2954,84 @@ class _MainScreenState extends State<MainScreen> {
         _pageController.jumpToPage(index);
       }
     }
+  }
 
-    if (index == 2 && _exploreItems.isEmpty && _exploreFolder == null) {
-      _fetchExplore(folderId: 'root');
+  void _openDriveSourcePage() {
+    debugPrint('DriveSettings opened');
+    final hasRootItems = _exploreFolder == null && _exploreItems.isNotEmpty;
+    _exploreFolder = null;
+    _navStack.clear();
+    _driveExplorerLoadError = null;
+    if (!hasRootItems) {
+      _exploreItems = [];
+      _driveExplorerAutoLoadAttempted = false;
     }
+    _driveSettingsSetState?.call(() {});
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          backgroundColor: _isDarkMode ? _darkBg : _lightBg,
+          body: Stack(
+            children: [
+              StatefulBuilder(
+                builder: (context, setState) {
+                  _driveSettingsSetState = setState;
+                  return SafeArea(bottom: false, child: buildDriveTab());
+                },
+              ),
+              Positioned(
+                top: 8,
+                left: 8,
+                child: SafeArea(
+                  bottom: false,
+                  child: IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: _isDarkMode ? Colors.white : _textPri,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _ensureDriveExplorerLoaded(force: true);
+    });
+  }
+
+  void _resetDriveExplorerToRoot() {
+    _exploreFolder = null;
+    _exploreItems = [];
+    _loadingExplore = false;
+    _driveExplorerAutoLoadAttempted = false;
+    _driveExplorerLoadError = null;
+    _navStack.clear();
+    _driveSettingsSetState?.call(() {});
+  }
+
+  void _ensureDriveExplorerLoaded({bool force = false}) {
+    if (_user == null) {
+      debugPrint('Drive folder load failed with error: user not signed in');
+      return;
+    }
+
+    if (_loadingExplore) {
+      debugPrint('Drive folder load skipped because already loading');
+      return;
+    }
+    if (_exploreFolder != null) return;
+    if (_exploreItems.isNotEmpty) return;
+    if (!force && _driveExplorerAutoLoadAttempted) return;
+
+    _driveExplorerAutoLoadAttempted = true;
+    _driveExplorerLoadError = null;
+    unawaited(_fetchExplore(folderId: 'root'));
   }
 
   void _openSettingsSheet() {
@@ -2352,15 +3059,24 @@ class _MainScreenState extends State<MainScreen> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.zero,
                   border: Border(
-                      top: BorderSide(color: Colors.white.withOpacity(0.12))),
+                      top: BorderSide(
+                          color: _isDarkMode
+                              ? Colors.white.withOpacity(0.12)
+                              : Colors.black.withOpacity(0.08))),
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [
-                      colors[0].withOpacity(0.22),
-                      _bg.withOpacity(0.98),
-                      Colors.black,
-                    ],
+                    colors: _isDarkMode
+                        ? [
+                            colors[0].withOpacity(0.22),
+                            _bg.withOpacity(0.98),
+                            Colors.black,
+                          ]
+                        : [
+                            _lightGlassBase.withOpacity(0.92),
+                            _lightBg.withOpacity(0.98),
+                            _lightBg,
+                          ],
                   ),
                 ),
                 child: SafeArea(
@@ -2383,6 +3099,7 @@ class _MainScreenState extends State<MainScreen> {
                               style: GoogleFonts.inter(
                                 fontSize: 17,
                                 fontWeight: FontWeight.w900,
+                                color: _isDarkMode ? _textPri : _lightText,
                               ),
                             ),
                             const Spacer(),
@@ -2398,7 +3115,8 @@ class _MainScreenState extends State<MainScreen> {
                             Text(
                               'Infame Control Center',
                               style: GoogleFonts.inter(
-                                color: _textPri,
+                                color:
+                                    _isDarkMode ? _textPri : _lightText,
                                 fontSize: 27,
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: -0.8,
@@ -2408,7 +3126,8 @@ class _MainScreenState extends State<MainScreen> {
                             Text(
                               'Library tools, background metadata scanning, cache cleanup and safety controls live here now.',
                               style: GoogleFonts.inter(
-                                color: _textSub,
+                                color:
+                                    _isDarkMode ? _textSub : _lightSubtext,
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
                                 height: 1.45,
@@ -2418,8 +3137,12 @@ class _MainScreenState extends State<MainScreen> {
                             GlassyContainer(
                               radius: 24,
                               padding: const EdgeInsets.all(16),
-                              customColor: Colors.white.withOpacity(0.075),
-                              customBorder: accent.withOpacity(0.22),
+                              customColor: _isDarkMode
+                                  ? Colors.white.withOpacity(0.075)
+                                  : _lightGlassBase.withOpacity(0.78),
+                              customBorder: _isDarkMode
+                                  ? accent.withOpacity(0.22)
+                                  : Colors.black.withOpacity(0.08),
                               child: Row(
                                 children: [
                                   Icon(
@@ -2434,7 +3157,7 @@ class _MainScreenState extends State<MainScreen> {
                                     child: Text(
                                       _isDarkMode ? 'Dark Mode' : 'Light Mode',
                                       style: GoogleFonts.inter(
-                                        color: _textPri,
+                                        color: _isDarkMode ? _textPri : _lightText,
                                         fontSize: 14,
                                         fontWeight: FontWeight.w900,
                                         height: 1.35,
@@ -2443,9 +3166,8 @@ class _MainScreenState extends State<MainScreen> {
                                   ),
                                   Switch(
                                     value: _isDarkMode,
-                                    onChanged: (_) {
-                                      setState(
-                                          () => _isDarkMode = !_isDarkMode);
+                                    onChanged: (value) {
+                                      setState(() => _isDarkMode = value);
                                       setSheetState(() {});
                                       _saveUiPreferences();
                                     },
@@ -2458,8 +3180,12 @@ class _MainScreenState extends State<MainScreen> {
                             GlassyContainer(
                               radius: 24,
                               padding: const EdgeInsets.all(16),
-                              customColor: Colors.white.withOpacity(0.075),
-                              customBorder: accent.withOpacity(0.22),
+                              customColor: _isDarkMode
+                                  ? Colors.white.withOpacity(0.075)
+                                  : _lightGlassBase.withOpacity(0.78),
+                              customBorder: _isDarkMode
+                                  ? accent.withOpacity(0.22)
+                                  : Colors.black.withOpacity(0.08),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -2477,7 +3203,9 @@ class _MainScreenState extends State<MainScreen> {
                                         child: Text(
                                           _metadataStatusLabel(),
                                           style: GoogleFonts.inter(
-                                            color: _textPri,
+                                            color: _isDarkMode
+                                                ? _textPri
+                                                : _lightText,
                                             fontSize: 14,
                                             fontWeight: FontWeight.w900,
                                             height: 1.35,
@@ -2492,8 +3220,9 @@ class _MainScreenState extends State<MainScreen> {
                                     child: LinearProgressIndicator(
                                       value: progress,
                                       minHeight: 6,
-                                      backgroundColor:
-                                          Colors.white.withOpacity(0.14),
+                                      backgroundColor: _isDarkMode
+                                          ? Colors.white.withOpacity(0.14)
+                                          : Colors.black.withOpacity(0.08),
                                       valueColor:
                                           AlwaysStoppedAnimation<Color>(accent),
                                     ),
@@ -2504,10 +3233,13 @@ class _MainScreenState extends State<MainScreen> {
                                       _MetadataStat(
                                           label: 'Fast', value: _metadataFast),
                                       _MetadataStat(
-                                          label: 'Deep', value: _metadataDeep),
+                                          label: 'Deep',
+                                          value: _metadataDeep,
+                                          isDarkMode: _isDarkMode),
                                       _MetadataStat(
                                           label: 'Failed',
-                                          value: _metadataFailed),
+                                          value: _metadataFailed,
+                                          isDarkMode: _isDarkMode),
                                     ],
                                   ),
                                 ],
@@ -2523,6 +3255,7 @@ class _MainScreenState extends State<MainScreen> {
                                   : Icons.sync_rounded,
                               accent: accent,
                               destructive: _loadingMetadata,
+                              isDarkMode: _isDarkMode,
                               onTap: () {
                                 if (_loadingMetadata) {
                                   _cancelForegroundMetadataScan();
@@ -2533,13 +3266,15 @@ class _MainScreenState extends State<MainScreen> {
                               },
                             ),
                             const SizedBox(height: 24),
-                            _SettingsSectionTitle(title: 'Library'),
+                            _SettingsSectionTitle(
+                                title: 'Library', isDarkMode: _isDarkMode),
                             _SettingsInfoCard(
                               icon: Icons.album_rounded,
                               title: '${_albums.length} albums saved',
                               subtitle:
                                   '${_metaStore.count} cached song metadata entries',
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                             ),
                             const SizedBox(height: 10),
                             _SettingsActionRow(
@@ -2548,6 +3283,7 @@ class _MainScreenState extends State<MainScreen> {
                               subtitle:
                                   'Recover the backup saved before clearing the app library.',
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                               onTap: _restoreLibraryBackup,
                             ),
                             _SettingsActionRow(
@@ -2557,6 +3293,7 @@ class _MainScreenState extends State<MainScreen> {
                                   ? 'Open a folder in Search first, then scan it here.'
                                   : 'Scan "${_exploreFolder!.name ?? 'folder'}" into your library.',
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                               onTap: _exploreFolder == null || _isScanning
                                   ? null
                                   : () => _scanFolderToLibrary(_exploreFolder!),
@@ -2567,16 +3304,37 @@ class _MainScreenState extends State<MainScreen> {
                               subtitle:
                                   'Searches embedded art and online sources for albums without covers.',
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                               onTap: _findCoversForAllAlbums,
                             ),
                             const SizedBox(height: 18),
-                            _SettingsSectionTitle(title: 'Cache'),
+                            _SettingsSectionTitle(
+                                title: 'Music source', isDarkMode: _isDarkMode),
+                            _SettingsActionRow(
+                              icon: Icons.storage_rounded,
+                              title: 'Google Drive',
+                              subtitle:
+                                  'Open your Drive folders, select sources and scan music.',
+                              accent: accent,
+                              isDarkMode: _isDarkMode,
+                              onTap: () {
+                                Navigator.pop(sheetContext);
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (mounted) _openDriveSourcePage();
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 18),
+                            _SettingsSectionTitle(
+                                title: 'Cache', isDarkMode: _isDarkMode),
                             _SettingsActionRow(
                               icon: Icons.tag_rounded,
                               title: 'Clear metadata cache',
                               subtitle:
                                   'Forces titles, artists and albums to be scanned again.',
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                               onTap: _clearMetadataCacheSafely,
                             ),
                             _SettingsActionRow(
@@ -2585,16 +3343,19 @@ class _MainScreenState extends State<MainScreen> {
                               subtitle:
                                   'Removes local cover images saved by metadata scans.',
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                               onTap: _clearCoverCacheSafely,
                             ),
                             const SizedBox(height: 18),
-                            _SettingsSectionTitle(title: 'Home Screen'),
+                            _SettingsSectionTitle(
+                                title: 'Home Screen', isDarkMode: _isDarkMode),
                             _SettingsActionRow(
                               icon: Icons.auto_awesome_rounded,
                               title: 'Rebuild Smart Home index',
                               subtitle:
                                   'Refreshes Home sections from cached metadata and opened albums.',
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                               onTap: _rebuildSmartHomeIndex,
                             ),
                             _SettingsSwitchRow(
@@ -2604,6 +3365,7 @@ class _MainScreenState extends State<MainScreen> {
                                   'Show recent albums and recent tracks on Home.',
                               value: _homeShowContinue,
                               accent: colors[1],
+                              isDarkMode: _isDarkMode,
                               onChanged: (value) {
                                 setState(() => _homeShowContinue = value);
                                 setSheetState(() {});
@@ -2642,6 +3404,7 @@ class _MainScreenState extends State<MainScreen> {
                               subtitle: 'Show your library albums on home.',
                               value: _homeShowArtists,
                               accent: colors[1],
+                              isDarkMode: _isDarkMode,
                               onChanged: (value) {
                                 setState(() => _homeShowArtists = value);
                                 setSheetState(() {});
@@ -2654,6 +3417,7 @@ class _MainScreenState extends State<MainScreen> {
                               subtitle: 'Show the random-library pick card.',
                               value: _homeShowDiscovery,
                               accent: colors[1],
+                              isDarkMode: _isDarkMode,
                               onChanged: (value) {
                                 setState(() => _homeShowDiscovery = value);
                                 setSheetState(() {});
@@ -2661,13 +3425,15 @@ class _MainScreenState extends State<MainScreen> {
                               },
                             ),
                             const SizedBox(height: 18),
-                            _SettingsSectionTitle(title: 'Performance'),
+                            _SettingsSectionTitle(
+                                title: 'Performance', isDarkMode: _isDarkMode),
                             _SettingsActionRow(
                               icon: Icons.tune_rounded,
                               title:
                                   'Glass mode: ${_glassModeLabel(_glassMode)}',
                               subtitle: _glassModeDescription(_glassMode),
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                               onTap: () => _cycleGlassMode(setSheetState),
                             ),
                             _SettingsSwitchRow(
@@ -2677,6 +3443,7 @@ class _MainScreenState extends State<MainScreen> {
                                   'Soft mesh glow without list blur. Turn off only if page swipes still feel heavy.',
                               value: _showBackgroundGlow,
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                               onChanged: (value) {
                                 setState(() => _showBackgroundGlow = value);
                                 setSheetState(() {});
@@ -2689,9 +3456,11 @@ class _MainScreenState extends State<MainScreen> {
                               subtitle:
                                   'Track lists are cached in memory, album colors are cached, and scrolling cards use fake glass.',
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                             ),
                             const SizedBox(height: 18),
-                            _SettingsSectionTitle(title: 'Appearance'),
+                            _SettingsSectionTitle(
+                                title: 'Appearance', isDarkMode: _isDarkMode),
                             _SettingsActionRow(
                               icon: Icons.palette_rounded,
                               title:
@@ -2699,6 +3468,7 @@ class _MainScreenState extends State<MainScreen> {
                               subtitle:
                                   'Cycles White, Champagne, Soft Blue and Pink. No loud yellow.',
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                               onTap: () => _cycleAccentMode(setSheetState),
                             ),
                             const SizedBox(height: 10),
@@ -2708,9 +3478,11 @@ class _MainScreenState extends State<MainScreen> {
                               subtitle:
                                   'No rainbow headers. The app uses controlled glass, album-color glow, and cheaper scrolling cards.',
                               accent: accent,
+                              isDarkMode: _isDarkMode,
                             ),
                             const SizedBox(height: 18),
-                            _SettingsSectionTitle(title: 'Danger Zone'),
+                            _SettingsSectionTitle(
+                                title: 'Danger Zone', isDarkMode: _isDarkMode),
                             _SettingsActionRow(
                               icon: Icons.delete_outline_rounded,
                               title: 'Clear app library cache',
@@ -2718,6 +3490,7 @@ class _MainScreenState extends State<MainScreen> {
                                   'Does not touch Google Drive files. Requires typing CLEAR.',
                               accent: Colors.redAccent,
                               destructive: true,
+                              isDarkMode: _isDarkMode,
                               onTap: _clearLibraryCacheSafely,
                             ),
                           ],
@@ -2852,6 +3625,7 @@ class _MainScreenState extends State<MainScreen> {
     if (account != null) {
       setState(() => _user = account);
       await _loadAlbums();
+      _ensureDriveExplorerLoaded();
     } else {
       setState(() => _loadingSaved = false);
     }
@@ -2871,6 +3645,7 @@ class _MainScreenState extends State<MainScreen> {
       if (account != null) {
         setState(() => _user = account);
         await _loadAlbums();
+        _ensureDriveExplorerLoaded();
       }
     } catch (e) {
       _showError('Sign-in failed: $e');
@@ -2908,6 +3683,8 @@ class _MainScreenState extends State<MainScreen> {
       _librarySearchTextCache.clear();
       _exploreFolder = null;
       _exploreItems = [];
+      _driveExplorerAutoLoadAttempted = false;
+      _driveExplorerLoadError = null;
       _navStack.clear();
       _currentDynamicColors = List<Color>.from(_defaultDynamicColors);
     });
@@ -4839,10 +5616,12 @@ class _MainScreenState extends State<MainScreen> {
     return null;
   }
 
-  // ── Library Scanner ───────────────────────────────────────────────────────
+  // ── Library Scanner ────────────────────────────────────────────────────────
   Future<void> _scanFolderToLibrary(drive.File rootFolder) async {
     if (_user == null || DriveUtils.effectiveId(rootFolder) == null) return;
 
+    debugPrint('scan started');
+    debugPrint('[DriveScan] scan started for folder: ${rootFolder.name}');
     setState(() => _isScanning = true);
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -5371,9 +6150,20 @@ class _MainScreenState extends State<MainScreen> {
 
   // ── Drive Explorer ────────────────────────────────────────────────────────
   Future<void> _fetchExplore({required String folderId}) async {
-    if (_user == null) return;
+    if (_user == null) {
+      debugPrint('[DriveExplore] user not signed in');
+      _driveExplorerLoadError = 'Sign in to load Drive folders.';
+      return;
+    }
 
+    if (_loadingExplore) {
+      debugPrint('Drive folder load skipped because already loading');
+      return;
+    }
+
+    debugPrint('Drive folder load started');
     setState(() => _loadingExplore = true);
+    _driveSettingsSetState?.call(() {});
 
     try {
       final headers = await _user!.authHeaders;
@@ -5385,6 +6175,8 @@ class _MainScreenState extends State<MainScreen> {
             'files(id,name,mimeType,shortcutDetails(targetId,targetMimeType),size,modifiedTime)',
         pageSize: 100,
         orderBy: 'folder,name',
+        corpora: 'allDrives',
+        spaces: 'drive',
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
       );
@@ -5393,13 +6185,52 @@ class _MainScreenState extends State<MainScreen> {
 
       if (!mounted) return;
 
+      var filteredFiles = files
+          .where((f) => DriveUtils.isFolder(f) || DriveUtils.isAudio(f))
+          .toList();
+
+      if (folderId == 'root' &&
+          filteredFiles.where(DriveUtils.isFolder).isEmpty) {
+        debugPrint(
+            'Drive root returned no direct children, loading all folders fallback');
+
+        String? pageToken;
+        final allFolders = <drive.File>[];
+        do {
+          final folderResult = await api.files.list(
+            q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+            $fields:
+                'files(id,name,mimeType,shortcutDetails(targetId,targetMimeType),size,modifiedTime),nextPageToken',
+            pageSize: 100,
+            pageToken: pageToken,
+            orderBy: 'name',
+            corpora: 'allDrives',
+            spaces: 'drive',
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+          );
+          final folderFiles = folderResult.files ?? <drive.File>[];
+          allFolders.addAll(
+              folderFiles.where((f) => DriveUtils.isFolder(f)).toList());
+          pageToken = folderResult.nextPageToken;
+        } while (pageToken != null);
+
+        filteredFiles = allFolders;
+      }
+
+      debugPrint(
+          'Drive folder load completed with count ${filteredFiles.length}');
+
       setState(() {
-        _exploreItems = files
-            .where((f) => DriveUtils.isFolder(f) || DriveUtils.isAudio(f))
-            .toList();
+        _exploreItems = filteredFiles;
         _loadingExplore = false;
+        _driveExplorerLoadError = null;
       });
+      _driveSettingsSetState?.call(() {});
     } catch (e) {
+      debugPrint('Drive folder load failed with error: $e');
+      _driveExplorerLoadError = e.toString();
+      _driveExplorerAutoLoadAttempted = false;
       if (e.toString().contains('401')) {
         _showError('Session expired. Sign out and sign back in.');
       } else {
@@ -5407,6 +6238,7 @@ class _MainScreenState extends State<MainScreen> {
       }
 
       if (mounted) setState(() => _loadingExplore = false);
+      _driveSettingsSetState?.call(() {});
     }
   }
 
@@ -5417,12 +6249,18 @@ class _MainScreenState extends State<MainScreen> {
         _exploreFolder = prev.id == 'root' ? null : prev;
         _exploreItems = [];
       });
-      await _fetchExplore(folderId: prev.id ?? 'root');
+      _driveSettingsSetState?.call(() {});
+      if (prev.id == 'root') {
+        await _fetchExplore(folderId: 'root');
+      } else {
+        await _fetchExplore(folderId: prev.id ?? 'root');
+      }
     } else {
       setState(() {
         _exploreFolder = null;
         _exploreItems = [];
       });
+      _driveSettingsSetState?.call(() {});
       await _fetchExplore(folderId: 'root');
     }
   }
@@ -5430,6 +6268,8 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _openExploreFolder(drive.File folder) async {
     final tid = DriveUtils.effectiveId(folder);
     if (tid == null) return;
+
+    debugPrint('selected folder changed: ${folder.name} (id: $tid)');
 
     if (_exploreFolder == null) {
       _navStack.add(drive.File()
@@ -5448,6 +6288,7 @@ class _MainScreenState extends State<MainScreen> {
       _exploreFolder = display;
       _exploreItems = [];
     });
+    _driveSettingsSetState?.call(() {});
 
     await _fetchExplore(folderId: tid);
   }
@@ -5521,6 +6362,7 @@ class _MainScreenState extends State<MainScreen> {
     String? coverUrl,
     List<Color>? colors,
   }) async {
+    _ensureAudioServicePlayerAttached();
     final fileId = DriveUtils.effectiveId(file);
     if (fileId == null || _user == null) return;
 
@@ -5568,16 +6410,44 @@ class _MainScreenState extends State<MainScreen> {
         coverUrl: resolvedCoverUrl,
         colors: activeColors,
       );
+      _infameAudioHandler?.updateMediaItem(
+        _mediaItemForCurrentTrack(
+          activeFile,
+          queue: activeQueue,
+          queueIndex: activeIndex,
+          coverUrl: resolvedCoverUrl,
+        ),
+      );
+      assert(() {
+        final mediaTitle = (DriveUtils.getTrackMeta(activeFile)['title'] ?? '')
+                .trim()
+                .isNotEmpty
+            ? (DriveUtils.getTrackMeta(activeFile)['title'] ?? '').trim()
+            : (activeFile.name ?? 'Unknown Track');
+        debugPrint('AudioService media item -> title=$mediaTitle');
+        return true;
+      }());
+      _syncAudioServicePlaybackState();
       _saveLastPlayed(activeFile, coverUrl: resolvedCoverUrl);
       _loadMetadataFor(activeFile, token, albumRecord: _viewingAlbum);
 
       final source = DriveAudioSource(activeFileId, token);
+      debugPrint(
+        'Infame _playSong loading ${source.runtimeType} '
+        'id=$activeFileId name=${activeFile.name}',
+      );
       await _player.stop();
       if (requestSerial != _playRequestSerial) return;
 
       await _player
           .setLoopMode(_nowPlaying.repeatOne ? LoopMode.one : LoopMode.off);
-      await _player.setAudioSource(source);
+      try {
+        await _player.setAudioSource(source);
+      } catch (e, st) {
+        debugPrint('Infame _playSong setAudioSource failed: $e');
+        debugPrint('$st');
+        rethrow;
+      }
       if (requestSerial != _playRequestSerial) return;
 
       final loadedDuration = _player.duration;
@@ -5598,10 +6468,15 @@ class _MainScreenState extends State<MainScreen> {
       }
 
       await _player.play();
+      await Future<void>.delayed(Duration.zero);
+      _infameAudioHandler?.syncPlaybackStateFromPlayer();
+      _syncAudioServicePlaybackState();
       _recordPlay(activeFile, coverUrl: resolvedCoverUrl);
       debugPrint(
           'Infame playback -> index=$activeIndex/${activeQueue.length} id=$activeFileId name=${activeFile.name}');
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('Infame _playSong failed: $e');
+      debugPrint('$st');
       _showError('Playback error: $e');
     } finally {
       _changingTrack = false;
@@ -5911,12 +6786,6 @@ class _MainScreenState extends State<MainScreen> {
                         _currentDynamicColors =
                             List<Color>.from(_defaultDynamicColors);
                       });
-
-                      if (index == 2 &&
-                          _exploreItems.isEmpty &&
-                          _exploreFolder == null) {
-                        _fetchExplore(folderId: 'root');
-                      }
                     },
                     itemBuilder: (context, index) {
                       switch (index) {
@@ -5927,13 +6796,13 @@ class _MainScreenState extends State<MainScreen> {
                           );
                         case 1:
                           return _KeepAlivePage(
-                            key: const PageStorageKey('library_keep_alive'),
-                            builder: (_) => buildLibraryTab(),
+                            key: const PageStorageKey('now_playing_keep_alive'),
+                            builder: (_) => _buildNowPlayingTab(),
                           );
                         case 2:
                           return _KeepAlivePage(
-                            key: const PageStorageKey('drive_keep_alive'),
-                            builder: (_) => buildDriveTab(),
+                            key: const PageStorageKey('library_keep_alive'),
+                            builder: (_) => buildLibraryTab(),
                           );
                         default:
                           return const SizedBox.shrink();
@@ -5941,30 +6810,40 @@ class _MainScreenState extends State<MainScreen> {
                     },
                   ),
           ),
-          Positioned(
-            bottom: 88 + safeBottom,
-            left: 16,
-            right: 16,
-            child: _PlayerFloatingBar(
-              player: _player,
-              onNext: () => _playNext(),
-              onPrev: () => _playPrev(),
-              onPlayFromQueue: (track, index) => _playSong(
-                track,
-                queue: _nowPlaying.queue,
-                idx: index,
-                coverUrl: _resolveCurrentTrackCover(
-                  track,
-                  queue: _nowPlaying.queue,
-                  idx: index,
-                  fallbackCoverUrl: _nowPlaying.currentCoverUrl,
+          ListenableBuilder(
+            listenable: _nowPlaying,
+            builder: (context, _) {
+              final hasCurrentTrack = _nowPlaying.track != null;
+              if (!hasCurrentTrack || _navIndex == 1) {
+                return const SizedBox.shrink();
+              }
+              return Positioned(
+                bottom: 88 + safeBottom,
+                left: 16,
+                right: 16,
+                child: _PlayerFloatingBar(
+                  player: _player,
+                  onNext: () => _playNext(),
+                  onPrev: () => _playPrev(),
+                  onOpenNowPlaying: () => _selectRootTab(1),
+                  onPlayFromQueue: (track, index) => _playSong(
+                    track,
+                    queue: _nowPlaying.queue,
+                    idx: index,
+                    coverUrl: _resolveCurrentTrackCover(
+                      track,
+                      queue: _nowPlaying.queue,
+                      idx: index,
+                      fallbackCoverUrl: _nowPlaying.currentCoverUrl,
+                    ),
+                    colors: _currentDynamicColors,
+                  ),
+                  isDarkMode: _isDarkMode,
+                  knownTrackDurationsMs: _knownTrackDurationsMs,
+                  knownTrackDurations: _knownTrackDurations,
                 ),
-                colors: _currentDynamicColors,
-              ),
-              isDarkMode: _isDarkMode,
-              knownTrackDurationsMs: _knownTrackDurationsMs,
-              knownTrackDurations: _knownTrackDurations,
-            ),
+              );
+            },
           ),
           Positioned(
             bottom: 18 + safeBottom,
@@ -5983,7 +6862,7 @@ class _MainScreenState extends State<MainScreen> {
                     decoration: BoxDecoration(
                       color: _isDarkMode
                           ? (_darkBg).withOpacity(0.45)
-                          : (_lightSurface).withOpacity(0.78),
+                          : _lightGlassBase.withOpacity(0.86),
                       borderRadius: BorderRadius.circular(28),
                       border: Border.all(
                         color: _isDarkMode
@@ -6004,26 +6883,32 @@ class _MainScreenState extends State<MainScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _NavBarItem(
-                          icon: Icons.home_rounded,
-                          label: 'Home',
-                          accent: _isDarkMode ? _neonPurple : _neonMagenta,
-                          isSelected: _navIndex == 0,
-                          onTap: () => _selectRootTab(0),
+                        Expanded(
+                          child: _NavBarItem(
+                            icon: Icons.home_rounded,
+                            label: 'Home',
+                            isDarkMode: _isDarkMode,
+                            isSelected: _navIndex == 0,
+                            onTap: () => _selectRootTab(0),
+                          ),
                         ),
-                        _NavBarItem(
-                          icon: Icons.library_music_rounded,
-                          label: 'Library',
-                          accent: _isDarkMode ? _neonMagenta : _neonPurple,
-                          isSelected: _navIndex == 1,
-                          onTap: () => _selectRootTab(1),
+                        Expanded(
+                          child: _NavBarItem(
+                            icon: Icons.album_rounded,
+                            label: 'Now Playing',
+                            isDarkMode: _isDarkMode,
+                            isSelected: _navIndex == 1,
+                            onTap: () => _selectRootTab(1),
+                          ),
                         ),
-                        _NavBarItem(
-                          icon: Icons.storage_rounded,
-                          label: 'My Drive',
-                          accent: _accentBlue,
-                          isSelected: _navIndex == 2,
-                          onTap: () => _selectRootTab(2),
+                        Expanded(
+                          child: _NavBarItem(
+                            icon: Icons.library_music_rounded,
+                            label: 'Library',
+                            isDarkMode: _isDarkMode,
+                            isSelected: _navIndex == 2,
+                            onTap: () => _selectRootTab(2),
+                          ),
                         ),
                       ],
                     ),
@@ -6439,6 +7324,7 @@ class _MainScreenState extends State<MainScreen> {
                   index: i,
                   coverUrl: coverUrl,
                   durationText: _trackDurationLabel(_albumTracks[i]),
+                  isLiked: _isTrackLiked(_albumTracks[i]),
                   onTap: () => _playSong(
                     _albumTracks[i],
                     queue: _albumTracks,
@@ -6446,6 +7332,7 @@ class _MainScreenState extends State<MainScreen> {
                     coverUrl: coverUrl,
                     colors: colors,
                   ),
+                  onToggleLiked: () => _toggleLikedTrack(_albumTracks[i]),
                   onPlayNext: () => _addTracksPlayNext([_albumTracks[i]]),
                   onAddToQueue: () => _addTracksToQueueEnd([_albumTracks[i]]),
                   isDarkMode: _isDarkMode,
@@ -6505,6 +7392,596 @@ class _MainScreenState extends State<MainScreen> {
   // ── Library Tab ───────────────────────────────────────────────────────────
 
   // ── Search Tab ────────────────────────────────────────────────────────────
+
+  Widget _buildNowPlayingTab() {
+    return ListenableBuilder(
+      listenable: _nowPlaying,
+      builder: (context, _) {
+        final track = _nowPlaying.track;
+        if (track == null) {
+          final textColor = _isDarkMode ? _darkTextPri : _lightTextPri;
+          final subTextColor = _isDarkMode ? _darkTextSub : _lightTextSub;
+          final accent = _isDarkMode ? _neonPurple : _lightAccentPink;
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 36),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.music_off_rounded, size: 52, color: accent),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Nothing playing',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: textColor,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Pick something from Home or Library',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: subTextColor,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      height: 1.45,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final trackId = DriveUtils.effectiveId(track) ?? '';
+        final record = trackId.isEmpty ? null : _libraryTrackIndex[trackId];
+        final albumName =
+            ((record?['album'] ?? record?['albumName'] ?? '')).trim();
+
+        return _FullScreenPlayerSheet(
+          player: _player,
+          onNext: () => _playNext(),
+          onPrev: () => _playPrev(),
+          onPlayFromQueue: (queueTrack, index) => _playSong(
+            queueTrack,
+            queue: _nowPlaying.queue,
+            idx: index,
+            coverUrl: _resolveCurrentTrackCover(
+              queueTrack,
+              queue: _nowPlaying.queue,
+              idx: index,
+              fallbackCoverUrl: _nowPlaying.currentCoverUrl,
+            ),
+            colors: _currentDynamicColors,
+          ),
+          isDarkMode: _isDarkMode,
+          albumName: albumName,
+          isLiked: _isTrackLiked(track),
+          onToggleLiked: () => _toggleLikedTrack(track),
+          knownTrackDurationsMs: _knownTrackDurationsMs,
+          knownTrackDurations: _knownTrackDurations,
+          embedded: true,
+        );
+      },
+    );
+  }
+
+  Widget _buildSearchTab() {
+    final colors = _safeColors(_currentDynamicColors);
+    final query = _searchQuery.trim().toLowerCase();
+    final selectedMode = _searchViewMode;
+    final bgColor = _isDarkMode ? _darkBg : _lightBg;
+    final albumsCache = _cachedVisibleAlbumsForQuery(query);
+    final songsCache = _cachedVisibleSongsForQuery(query);
+    final likedSongsCache = _cachedVisibleSongsForQuery(query, likedOnly: true);
+    final artistsCache = _cachedVisibleArtistsForQuery(query);
+    final albums = albumsCache;
+    final songs = songsCache.records;
+    final songFiles = songsCache.files;
+    final likedSongs = likedSongsCache.records;
+    final likedSongFiles = likedSongsCache.files;
+    final artists = artistsCache.grouped;
+    final visibleArtists = artistsCache.names;
+    final showAll = selectedMode == 'all';
+    final showAlbums = showAll || selectedMode == 'albums';
+    final showArtists = showAll || selectedMode == 'artists';
+    final showSongs = showAll || selectedMode == 'songs';
+    final showLiked = showAll || selectedMode == 'liked';
+    final hasVisibleResults = showAll
+        ? albums.isNotEmpty ||
+            visibleArtists.isNotEmpty ||
+            songs.isNotEmpty ||
+            likedSongs.isNotEmpty
+        : showAlbums
+            ? albums.isNotEmpty
+            : showArtists
+                ? visibleArtists.isNotEmpty
+                : showSongs
+                    ? songs.isNotEmpty
+                    : likedSongs.isNotEmpty;
+
+    debugPrint(
+        '[Search] results rebuilt: category=$selectedMode count=${showAll ? (albums.length + visibleArtists.length + songs.length + likedSongs.length) : (showAlbums ? albums.length : showArtists ? visibleArtists.length : showSongs ? songs.length : likedSongs.length)}');
+
+    return RepaintBoundary(
+      child: Container(
+        color: bgColor,
+        child: CustomScrollView(
+          key: const PageStorageKey('search_tab_scroll'),
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 32, 20, 12),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildGradientText('Search',
+                              size: 34, spacing: -1.4),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Search songs, albums, artists and liked tracks.',
+                      style: GoogleFonts.inter(
+                        color: _textSub,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildLibrarySearchBar(
+                      colors,
+                      hintText: 'Search Nas, albums, artists...',
+                      controller: _searchSearchController,
+                      onChanged: (value) {
+                        debugPrint('[Search] query changed: "$value"');
+                        setState(() => _searchQuery = value);
+                      },
+                      query: _searchQuery,
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _SearchModePill(
+                          label: 'All',
+                          isSelected: selectedMode == 'all',
+                          isDarkMode: _isDarkMode,
+                          onTap: () {
+                            debugPrint('[Search] category selected: all');
+                            setState(() => _searchViewMode = 'all');
+                          },
+                        ),
+                        _SearchModePill(
+                          label: 'Albums',
+                          isSelected: selectedMode == 'albums',
+                          isDarkMode: _isDarkMode,
+                          onTap: () {
+                            debugPrint('[Search] category selected: albums');
+                            setState(() => _searchViewMode = 'albums');
+                          },
+                        ),
+                        _SearchModePill(
+                          label: 'Artists',
+                          isSelected: selectedMode == 'artists',
+                          isDarkMode: _isDarkMode,
+                          onTap: () {
+                            debugPrint('[Search] category selected: artists');
+                            setState(() => _searchViewMode = 'artists');
+                          },
+                        ),
+                        _SearchModePill(
+                          label: 'Songs',
+                          isSelected: selectedMode == 'songs',
+                          isDarkMode: _isDarkMode,
+                          onTap: () {
+                            debugPrint('[Search] category selected: songs');
+                            setState(() => _searchViewMode = 'songs');
+                          },
+                        ),
+                        if (_likedTrackKeys.isNotEmpty)
+                          _SearchModePill(
+                            label: 'Liked',
+                            isSelected: selectedMode == 'liked',
+                            isDarkMode: _isDarkMode,
+                            onTap: () {
+                              debugPrint('[Search] category selected: liked');
+                              setState(() => _searchViewMode = 'liked');
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (!hasVisibleResults)
+              SliverFillRemaining(
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'No results found.',
+                        style: GoogleFonts.inter(
+                          color: _textPri,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextButton(
+                        onPressed: () {
+                          _searchSearchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                        child: Text(
+                          'Clear search',
+                          style: GoogleFonts.inter(
+                            color: colors[1],
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else ...[
+              if (showArtists && visibleArtists.isNotEmpty) ...[
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                  sliver: SliverToBoxAdapter(
+                    child: Text(
+                      'Artists',
+                      style: GoogleFonts.inter(
+                        color: _isDarkMode ? Colors.white : _textPri,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate((ctx, i) {
+                      final artist = visibleArtists[i];
+                      final records =
+                          artists[artist] ?? const <Map<String, String>>[];
+                      final albumSet = <String>{};
+                      for (final record in records) {
+                        final album = record['albumName'] ?? '';
+                        if (album.isNotEmpty) albumSet.add(album);
+                      }
+
+                      final artistAlbums = _albums.where((album) {
+                        final albumArtist = _canonicalArtistName(
+                          albumArtist: _libraryAlbumArtist(album),
+                          trackArtist: _libraryBrain[album['id'] ?? '']
+                                  ?['artist'] ??
+                              album['artist'] ??
+                              '',
+                          albumName:
+                              album['name'] ?? album['displayName'] ?? '',
+                        );
+                        return albumArtist.toLowerCase() ==
+                            artist.toLowerCase();
+                      }).map((album) {
+                        final merged = Map<String, String>.from(album);
+                        final brain = _libraryBrain[album['id'] ?? ''];
+                        if (brain != null) merged.addAll(brain);
+                        merged['artist'] = _libraryAlbumArtist(album);
+                        merged['displayName'] = _libraryAlbumTitle(album);
+                        return merged;
+                      }).toList();
+
+                      return GestureDetector(
+                        key: ValueKey('search-artist-$artist'),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => _ArtistDetailPage(
+                                artistName: artist,
+                                artistImageUrl: _artistImageCache[
+                                        _artistImageCacheKey(artist)] ??
+                                    '',
+                                artistAlbums: artistAlbums,
+                                artistTrackRecords: records,
+                                isDarkMode: _isDarkMode,
+                                accentColors: _safeColors(colors),
+                                onOpenAlbum: _openAlbum,
+                                onPlayTrack: (file,
+                                    {queue, idx, coverUrl, colors}) {
+                                  return _playSong(
+                                    file,
+                                    queue: queue,
+                                    idx: idx,
+                                    coverUrl: coverUrl,
+                                    colors: colors,
+                                  );
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                        behavior: HitTestBehavior.opaque,
+                        child: GlassyContainer(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(16),
+                          radius: 20,
+                          child: Row(
+                            children: [
+                              _ArtistAvatar(
+                                artistName: artist,
+                                imageUrl: _artistImageCache[
+                                    _artistImageCacheKey(artist)],
+                                colors: colors,
+                                size: 56,
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      artist,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w900,
+                                        color: _textPri,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${records.length} songs • ${albumSet.length} albums',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        color: _textSub,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.chevron_right_rounded,
+                                  color: _textSub),
+                            ],
+                          ),
+                        ),
+                      );
+                    }, childCount: visibleArtists.length),
+                  ),
+                ),
+              ],
+              if (showAlbums && albums.isNotEmpty) ...[
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+                  sliver: SliverToBoxAdapter(
+                    child: Text(
+                      'Albums',
+                      style: GoogleFonts.inter(
+                        color: _isDarkMode ? Colors.white : _textPri,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate((ctx, i) {
+                      final album = albums[i];
+                      final brain = _libraryBrain[album['id'] ?? ''];
+                      final name = _libraryAlbumTitle(album);
+                      final artist = _libraryAlbumArtist(album);
+                      final year = brain?['year'] ?? album['year'] ?? '';
+                      final genre = brain?['genre'] ?? album['genre'] ?? '';
+                      final coverUrl = album['cover'] ?? brain?['cover'] ?? '';
+                      final gradient = getAlbumGradient(name);
+
+                      return GestureDetector(
+                        key: ValueKey(
+                            'search-album-${album['id'] ?? album['name']}'),
+                        onTap: () => _openAlbum(album),
+                        behavior: HitTestBehavior.opaque,
+                        child: GlassyContainer(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          radius: 20,
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 58,
+                                height: 58,
+                                decoration: BoxDecoration(
+                                  borderRadius:
+                                      BorderRadius.circular(kArtworkRadius),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: gradient,
+                                  ),
+                                ),
+                                child: coverUrl.isNotEmpty
+                                    ? ClipRRect(
+                                        borderRadius: BorderRadius.circular(
+                                            kArtworkRadius),
+                                        child: _coverImage(
+                                          coverUrl,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) =>
+                                              _AlbumFallbackCover(
+                                            name: name,
+                                            colors: gradient,
+                                            radius: kArtworkRadius,
+                                            small: true,
+                                          ),
+                                        ),
+                                      )
+                                    : _AlbumFallbackCover(
+                                        name: name,
+                                        colors: gradient,
+                                        radius: kArtworkRadius,
+                                        small: true,
+                                      ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w900,
+                                        color: _textPri,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      artist.isNotEmpty
+                                          ? artist
+                                          : year.isNotEmpty
+                                              ? year
+                                              : genre.isNotEmpty
+                                                  ? genre
+                                                  : 'Album • Drive',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        color: _textSub,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.chevron_right_rounded,
+                                  color: _textSub),
+                            ],
+                          ),
+                        ),
+                      );
+                    }, childCount: albums.length),
+                  ),
+                ),
+              ],
+              if (showSongs && songs.isNotEmpty) ...[
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+                  sliver: SliverToBoxAdapter(
+                    child: Text(
+                      'Songs',
+                      style: GoogleFonts.inter(
+                        color: _isDarkMode ? Colors.white : _textPri,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 18),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate((ctx, i) {
+                      final record = songs[i];
+                      final file = songFiles[i];
+                      final coverUrl = record['albumCover'] ?? '';
+                      return _TrackGlassTile(
+                        key: ValueKey('search-song-${record['id']}'),
+                        track: file,
+                        queue: songFiles,
+                        index: i,
+                        coverUrl: coverUrl,
+                        isLiked: _isTrackLiked(file),
+                        onTap: () {
+                          unawaited(_playSong(
+                            file,
+                            queue: songFiles,
+                            idx: i,
+                            coverUrl: coverUrl,
+                            colors: _currentDynamicColors,
+                          ));
+                        },
+                        onToggleLiked: () => _toggleLikedTrack(file),
+                        onPlayNext: () => _addTracksPlayNext([file]),
+                        onAddToQueue: () => _addTracksToQueueEnd([file]),
+                        isDarkMode: _isDarkMode,
+                      );
+                    }, childCount: songs.length),
+                  ),
+                ),
+              ],
+              if (showLiked && likedSongs.isNotEmpty) ...[
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+                  sliver: SliverToBoxAdapter(
+                    child: Text(
+                      'Liked',
+                      style: GoogleFonts.inter(
+                        color: _isDarkMode ? Colors.white : _textPri,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 18),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate((ctx, i) {
+                      final record = likedSongs[i];
+                      final file = likedSongFiles[i];
+                      final coverUrl = record['albumCover'] ?? '';
+
+                      return _TrackGlassTile(
+                        key: ValueKey('search-liked-${record['id']}'),
+                        track: file,
+                        queue: [file],
+                        index: 0,
+                        coverUrl: coverUrl,
+                        isLiked: true,
+                        onTap: () {
+                          unawaited(_playSong(
+                            file,
+                            queue: [file],
+                            idx: 0,
+                            coverUrl: coverUrl,
+                            colors: _currentDynamicColors,
+                          ));
+                        },
+                        onToggleLiked: () => _toggleLikedTrack(file),
+                        onPlayNext: () => _addTracksPlayNext([file]),
+                        onAddToQueue: () => _addTracksToQueueEnd([file]),
+                        isDarkMode: _isDarkMode,
+                      );
+                    }, childCount: likedSongs.length),
+                  ),
+                ),
+              ],
+              const SliverToBoxAdapter(child: SizedBox(height: 170)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildAppBackground(List<Color> colors, {bool signIn = false}) {
     final safe = _safeColors(colors);
