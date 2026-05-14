@@ -39,6 +39,22 @@ part 'screens/drive_tab.dart';
 part 'widgets/library_widgets.dart';
 part 'widgets/player_widgets.dart';
 
+const bool kVerbosePlaybackLogs = false;
+const bool kVerboseUiLogs = false;
+const bool kVerboseScanLogs = false;
+
+void _verbosePlaybackLog(String message) {
+  if (kVerbosePlaybackLogs) debugPrint(message);
+}
+
+void _verboseUiLog(String message) {
+  if (kVerboseUiLogs) debugPrint(message);
+}
+
+void _verboseScanLog(String message) {
+  if (kVerboseScanLogs) debugPrint(message);
+}
+
 // ─── Compatibility helpers for the local metadata model ─────────────────────
 // These keep main.dart in sync even if lib/models/track_metadata.dart only has
 // fromJson/toJson and plain fields.
@@ -638,14 +654,175 @@ bool _isLocalCover(String? source) {
 // already cached locally. Keep UI decoding capped to a sensible cover size.
 const int _coverThumbDecodeSize = 320;
 const int _coverLargeDecodeSize = 900;
+const String _failedCoverSourcesPrefsKey = 'failed_cover_sources';
+
+final Set<String> _failedCoverSources = <String>{};
+final Set<String> _albumCacheKeyLogSeen = <String>{};
+final Set<String> _albumDisplayLogSeen = <String>{};
+
+String _coverSourceKey(String source) => source.trim();
+
+String _normalizeAlbumKeySegment(String value) {
+  final cleaned = value.trim();
+  if (cleaned.isEmpty) return '';
+  final parts = cleaned
+      .split(',')
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty)
+      .toSet()
+      .toList()
+    ..sort();
+  if (parts.isEmpty) return '';
+  return parts.join(',');
+}
+
+String _firstNonEmptyString(Iterable<dynamic> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) return text;
+  }
+  return '';
+}
+
+String _albumCacheKey(dynamic albumOrTrack, {String source = 'unknown'}) {
+  String raw = '';
+  String key = '';
+
+  if (albumOrTrack is drive.File) {
+    raw = (DriveUtils.effectiveId(albumOrTrack) ?? albumOrTrack.id ?? '')
+        .trim();
+    key = raw;
+  } else if (albumOrTrack is TrackMetadata) {
+    raw = _firstNonEmptyString([
+      albumOrTrack.album,
+      albumOrTrack.artist,
+      albumOrTrack.title,
+      albumOrTrack.coverPath,
+    ]);
+    key = _normalizeAlbumKeySegment(raw);
+  } else if (albumOrTrack is Map) {
+    final map = Map<Object?, Object?>.from(albumOrTrack as Map);
+    raw = _firstNonEmptyString([
+      map['albumKey'],
+      map['albumId'],
+      map['folderId'],
+      map['parentId'],
+      map['id'],
+      map['displayName'],
+      map['name'],
+      map['album'],
+      map['title'],
+    ]);
+    key = _normalizeAlbumKeySegment(raw);
+    if (key.isEmpty) {
+      final title = _firstNonEmptyString([
+        map['displayName'],
+        map['album'],
+        map['title'],
+        map['name'],
+      ]);
+      final artist = _firstNonEmptyString([
+        map['artist'],
+        map['albumArtist'],
+      ]);
+      final fallback = [artist, title]
+          .where((value) => value.isNotEmpty)
+          .join('::')
+          .trim();
+      key = _normalizeAlbumKeySegment(fallback);
+    }
+  } else if (albumOrTrack is String) {
+    raw = albumOrTrack.trim();
+    key = _normalizeAlbumKeySegment(raw);
+  } else if (albumOrTrack != null) {
+    raw = albumOrTrack.toString().trim();
+    key = _normalizeAlbumKeySegment(raw);
+  }
+
+  if (key.isEmpty) key = raw.trim();
+  if (key.isEmpty) key = 'unknown';
+
+  final logKey = '$source|$key';
+  if (_albumCacheKeyLogSeen.add(logKey)) {
+    debugPrint('AlbumKey resolve raw=$raw key=$key source=$source');
+  }
+  return key;
+}
+
+bool _isDriveThumbnailCover(String source) {
+  final lower = source.toLowerCase();
+  return lower.contains('lh3.googleusercontent.com/drive-storage') ||
+      lower.contains('googleusercontent.com/drive-storage');
+}
+
+bool _isBlockedCoverSource(String? source) {
+  final value = source?.trim() ?? '';
+  if (value.isEmpty) return true;
+  if (_failedCoverSources.contains(_coverSourceKey(value))) return true;
+  return _isDriveThumbnailCover(value);
+}
+
+String _sanitizeCoverSource(String? source) {
+  final value = source?.trim() ?? '';
+  if (value.isEmpty || _isBlockedCoverSource(value)) return '';
+  return value;
+}
+
+void _markFailedCoverSource(String source) {
+  final key = _coverSourceKey(source);
+  if (key.isEmpty || _failedCoverSources.contains(key)) return;
+  _failedCoverSources.add(key);
+  unawaited(_saveFailedCoverSources());
+}
+
+Future<void> _loadFailedCoverSources() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final values = prefs.getStringList(_failedCoverSourcesPrefsKey);
+    if (values == null || values.isEmpty) return;
+    _failedCoverSources
+      ..clear()
+      ..addAll(values.map(_coverSourceKey).where((value) => value.isNotEmpty));
+  } catch (_) {}
+}
+
+Future<void> _saveFailedCoverSources() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _failedCoverSourcesPrefsKey,
+      _failedCoverSources.toList()..sort(),
+    );
+  } catch (_) {}
+}
+
+Widget _coverFallbackWidget(String seed) {
+  final colors = getAlbumGradient(seed.isNotEmpty ? seed : 'Musix');
+  return DecoratedBox(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: colors,
+      ),
+    ),
+    child: Center(
+      child: Icon(
+        Icons.album_rounded,
+        color: Colors.white.withOpacity(0.42),
+      ),
+    ),
+  );
+}
 
 ImageProvider? _coverProvider(String? source,
     {int cacheSize = _coverThumbDecodeSize}) {
-  if (source == null || source.isEmpty) return null;
+  if (_isBlockedCoverSource(source)) return null;
 
-  final baseProvider = _isLocalCover(source)
-      ? FileImage(File(_localCoverPath(source))) as ImageProvider
-      : NetworkImage(source);
+  final value = source!.trim();
+  final baseProvider = _isLocalCover(value)
+      ? FileImage(File(_localCoverPath(value))) as ImageProvider
+      : NetworkImage(value);
 
   return ResizeImage(
     baseProvider,
@@ -660,13 +837,21 @@ Widget _coverImage(
   int cacheSize = _coverThumbDecodeSize,
   Widget Function(BuildContext, Object, StackTrace?)? errorBuilder,
 }) {
+  if (_isBlockedCoverSource(source)) {
+    return _coverFallbackWidget(source);
+  }
+
   if (_isLocalCover(source)) {
     return Image.file(
       File(_localCoverPath(source)),
       fit: fit,
       cacheWidth: cacheSize,
       cacheHeight: cacheSize,
-      errorBuilder: errorBuilder,
+      errorBuilder: errorBuilder ??
+          (context, error, stackTrace) {
+            _markFailedCoverSource(source);
+            return _coverFallbackWidget(source);
+          },
     );
   }
 
@@ -675,7 +860,11 @@ Widget _coverImage(
     fit: fit,
     cacheWidth: cacheSize,
     cacheHeight: cacheSize,
-    errorBuilder: errorBuilder,
+    errorBuilder: errorBuilder ??
+        (context, error, stackTrace) {
+          _markFailedCoverSource(source);
+          return _coverFallbackWidget(source);
+        },
   );
 }
 
@@ -745,14 +934,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   StreamSubscription<ProcessingState>? _processingStateSub;
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription<PlaybackEvent>? _playbackEventSub;
+  StreamSubscription<Duration?>? _durationSub;
+  Timer? _playbackEndWatchdog;
+  Duration _lastWatchdogPosition = Duration.zero;
+  int _watchdogNearEndTicks = 0;
+  bool _autoAdvanceStartNudgeRunning = false;
   bool _audioServicePlayerAttached = false;
   final Map<String, String> _artistImageCache = {};
   final Map<String, int> _artistImageFailureCooldown = {};
   final Set<String> _artistImageFetchInFlight = {};
   bool _artistImagePrefetchRunning = false;
   bool _changingTrack = false;
-  bool _handlingTrackCompletion = false;
+  bool _handlingPlaybackComplete = false;
   int _playRequestSerial = 0;
+  String _lastHandledCompletionSignature = '';
+  String _durationCacheTrackKey = '';
   bool _signingIn = false;
   int _navIndex = 0;
   late final PageController _pageController;
@@ -874,6 +1070,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool _albumMetadataLoading = false;
   int _albumMetadataDone = 0;
   int _albumMetadataTotal = 0;
+  final Set<String> _hydratingAlbumDurations = <String>{};
+  final Set<String> _hydratedAlbumDurations = <String>{};
+  final Map<String, String> _pendingAlbumCoverUpdates = {};
+  Timer? _pendingAlbumCoverFlushTimer;
 
   List<Color> _currentDynamicColors = List<Color>.from(_defaultDynamicColors);
 
@@ -937,16 +1137,24 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     _processingStateSub = _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) {
-        _handleTrackCompleted();
+        _handleTrackCompleted(reason: 'processing_completed');
+      } else if (state == ProcessingState.ready ||
+          state == ProcessingState.idle) {
+        _maybeAutoAdvanceAfterPlaybackStop();
       }
       _syncAudioServicePlaybackState();
     });
     _playerStateSub = _player.playerStateStream.listen((_) {
+      _maybeAutoAdvanceAfterPlaybackStop();
       _syncAudioServicePlaybackState();
     });
-    _playbackEventSub = _player.playbackEventStream.listen((_) {
+    _playbackEventSub = _player.playbackEventStream.listen((event) {
+      _maybeAutoAdvanceFromPlaybackEvent(event);
+      _maybeAutoAdvanceAfterPlaybackStop();
       _syncAudioServicePlaybackState();
     });
+    _durationSub = _player.durationStream.listen(_cacheCurrentPlaybackDuration);
+    _startPlaybackEndWatchdog();
 
     final handler = _infameAudioHandlerInstance;
     handler?.bindCallbacks(
@@ -964,6 +1172,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _syncAudioServicePlaybackState();
       },
       onSeek: (position) async {
+        debugPrint('Seek requested position=$position');
         await _player.seek(position);
         _syncAudioServicePlaybackState();
       },
@@ -974,20 +1183,32 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         await _playPrev();
       },
     );
+    DriveAudioSource.onEndReached = (fileId) async {
+      if (!mounted) return;
+      final currentTrack = _nowPlaying.track ?? _nowPlaying.currentTrack;
+      final currentId = currentTrack == null
+          ? ''
+          : (DriveUtils.effectiveId(currentTrack) ?? '').trim();
+      if (currentId.isEmpty || currentId != fileId.trim()) return;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      if (!mounted) return;
+      await _handleTrackCompleted(reason: 'drive_eof');
+    };
     _searchSearchController.text = _searchQuery;
     _ensureAudioServicePlayerAttached();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _ensureAudioServicePlayerAttached();
-    });
   }
 
   @override
   void dispose() {
     FlutterForegroundTask.removeTaskDataCallback(_onMetadataTaskData);
+    DriveAudioSource.onEndReached = null;
     _metadataProgressPoller?.cancel();
+    _pendingAlbumCoverFlushTimer?.cancel();
+    _playbackEndWatchdog?.cancel();
     _processingStateSub?.cancel();
     _playerStateSub?.cancel();
     _playbackEventSub?.cancel();
+    _durationSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_shutdownPlaybackService());
     _pageController.dispose();
@@ -1026,7 +1247,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Future<void> _loadCachedMetadata() async {
     await _metaStore.load();
+    final changed = _mergeCachedMetadataDurations();
+    if (changed) {
+      await _saveKnownTrackDurations();
+      await _saveLibraryTrackIndex();
+    }
     if (mounted) setState(() {});
+  }
+
+  bool _mergeCachedMetadataDurations() {
+    var changed = false;
+    for (final entry in _metaStore.cachedDurationsMs.entries) {
+      if (_knownTrackDurationsMs[entry.key] != entry.value) {
+        _setKnownTrackDuration(entry.key, entry.value);
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   Color get _appAccent => _accentColorForMode(_accentMode);
@@ -1060,6 +1297,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (fileId == null) return;
 
     final meta = DriveUtils.getTrackMeta(file);
+    final safeCoverUrl = _sanitizeCoverSource(coverUrl);
     final existing = _lastPlayed;
     final sameAsExisting = existing?['fileId'] == fileId;
     final data = <String, String>{
@@ -1067,8 +1305,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'fileName': file.name ?? meta['title'] ?? 'Unknown',
       'title': meta['title'] ?? file.name ?? 'Unknown',
       'artist': meta['artist'] ?? 'Unknown Artist',
-      'coverUrl':
-          coverUrl ?? (sameAsExisting ? (existing?['coverUrl'] ?? '') : ''),
+      'coverUrl': safeCoverUrl.isNotEmpty
+          ? safeCoverUrl
+          : (sameAsExisting ? (existing?['coverUrl'] ?? '') : ''),
       'albumId': _viewingAlbum?['id'] ??
           (sameAsExisting ? (existing?['albumId'] ?? '') : ''),
       'albumName': _viewingAlbum?['name'] ??
@@ -1143,6 +1382,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     try {
       final prefs = await SharedPreferences.getInstance();
       glassModeNotifier.value = _glassMode;
+      await _loadFailedCoverSources();
       final savedThemeMode = prefs.getString(_themeModePrefsKey);
       if (savedThemeMode != null) {
         final nextDarkMode = savedThemeMode != 'light';
@@ -1659,23 +1899,55 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Future<void> _loadKnownTrackDurations() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      Map<dynamic, dynamic>? decoded;
+
       final raw = prefs.getString(_knownTrackDurationsKey);
-      if (raw == null || raw.isEmpty) return;
-
-      final decoded = json.decode(raw);
-      if (decoded is Map) {
-        _knownTrackDurationsMs.clear();
-        decoded.forEach((key, value) {
-          if (key is! String) return;
-          final durationMs = _validDurationMsFromValue(value);
-          if (durationMs == null) return;
-          _setKnownTrackDuration(key, durationMs);
-        });
-
-        final repaired = _repairLibraryTrackIndexFromAlbums();
-        if (repaired) await _saveLibraryTrackIndex();
-        if (mounted) setState(() {});
+      if (raw != null && raw.isNotEmpty) {
+        final parsed = json.decode(raw);
+        if (parsed is Map) decoded = parsed;
       }
+
+      // Backward-compat migrations for older builds.
+      if (decoded == null) {
+        const legacyKeys = <String>[
+          'known_track_durations',
+          'known_track_durations_v1',
+          'known_track_durations_ms_v1',
+        ];
+        for (final legacyKey in legacyKeys) {
+          final legacyRaw = prefs.getString(legacyKey);
+          if (legacyRaw == null || legacyRaw.isEmpty) continue;
+          final parsed = json.decode(legacyRaw);
+          if (parsed is Map) {
+            decoded = parsed;
+            break;
+          }
+        }
+      }
+
+      if (decoded == null) return;
+
+      _knownTrackDurationsMs.clear();
+      decoded.forEach((key, value) {
+        if (key is! String) return;
+        final durationMs = _validDurationMsFromValue(value) ??
+            _validDurationMsFromValue(
+              value is Map
+                  ? (value['durationMs'] ??
+                      value['inMilliseconds'] ??
+                      value['milliseconds'] ??
+                      value['duration'])
+                  : null,
+            );
+        if (durationMs == null) return;
+        _setKnownTrackDuration(key, durationMs);
+      });
+
+      final metadataChanged = _mergeCachedMetadataDurations();
+      final repaired = _repairLibraryTrackIndexFromAlbums();
+      if (repaired || metadataChanged) await _saveLibraryTrackIndex();
+      if (metadataChanged) await _saveKnownTrackDurations();
+      if (mounted) setState(() {});
     } catch (_) {}
   }
 
@@ -1714,6 +1986,379 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _storeDurationForTrackId(
+    String trackId,
+    int durationMs, {
+    bool persist = true,
+    bool refreshVisibleAlbum = false,
+  }) {
+    final valid = _validDurationMsFromValue(durationMs);
+    if (trackId.trim().isEmpty || valid == null) return;
+
+    _setKnownTrackDuration(trackId, valid);
+
+    if (persist) {
+      unawaited(_saveKnownTrackDurations());
+      unawaited(_saveLibraryTrackIndex());
+    }
+
+    if (refreshVisibleAlbum && mounted && _viewingAlbum != null) {
+      setState(() {});
+    }
+  }
+
+  void _cacheCurrentPlaybackDuration(Duration? duration) {
+    final durationMs = _validDurationMsFromValue(duration?.inMilliseconds);
+    if (durationMs == null) return;
+
+    final current = _nowPlaying.track ?? _nowPlaying.currentTrack;
+    if (current == null) return;
+
+    final key = _trackKey(current);
+    if (key.isEmpty) return;
+
+    // During a track change just_audio can briefly re-emit the previous
+    // source's duration after _nowPlaying has already been switched to the
+    // next file. Only cache durations for the source that has finished
+    // setAudioSource for the current track, otherwise album rows can show the
+    // wrong length until the user taps the song again.
+    if (_durationCacheTrackKey != key) return;
+
+    final existingDurationMs = _knownTrackDurationsMs[key] ??
+        _validDurationMsFromValue(_libraryTrackIndex[key]?['durationMs']);
+    if (existingDurationMs != null &&
+        existingDurationMs > 0 &&
+        durationMs < (existingDurationMs * 0.85).round()) {
+      return;
+    }
+
+    if (_knownTrackDurationsMs[key] == durationMs &&
+        _libraryTrackIndex[key]?['durationMs'] == durationMs.toString()) {
+      return;
+    }
+
+    _storeDurationForTrackId(
+      key,
+      durationMs,
+      persist: true,
+      refreshVisibleAlbum: true,
+    );
+    _invalidateLibraryBrowseCache();
+
+    _verbosePlaybackLog(
+        'Duration cached from player key=$key durationMs=$durationMs');
+  }
+
+  int? _durationMsFromTrackMetadata(drive.File file) {
+    final meta = _metaStore.peekFresh(file) ?? _metaStore.peek(file);
+    return _validDurationMsFromValue(meta?.durationMs);
+  }
+
+  int? _durationMsForTrack(drive.File file) {
+    final trackId = _trackKey(file);
+    if (trackId.isEmpty) return null;
+
+    final fromMetadata = _durationMsFromTrackMetadata(file);
+    final fromKnown = _validDurationMsFromValue(_knownTrackDurationsMs[trackId]);
+    final fromIndex =
+        _validDurationMsFromValue(_libraryTrackIndex[trackId]?['durationMs']);
+
+    return fromMetadata ?? fromKnown ?? fromIndex;
+  }
+
+  List<drive.File> _tracksForAlbumKey(String albumKey) {
+    final normalizedKey = _albumCacheKey(albumKey, source: 'album_tracks');
+    final cachedTracks = _albumTracksCache[normalizedKey];
+    if (cachedTracks != null && cachedTracks.isNotEmpty) {
+      return _sortTracksForAlbum(cachedTracks);
+    }
+
+    if (_viewingAlbum != null &&
+        _albumCacheKey(_viewingAlbum!, source: 'current_album') ==
+            normalizedKey &&
+        _albumTracks.isNotEmpty) {
+      return _sortTracksForAlbum(_albumTracks);
+    }
+
+    return const <drive.File>[];
+  }
+
+  Map<String, String>? _brainForAlbum(Map<String, String> album) {
+    final normalizedKey = _albumCacheKey(album, source: 'brain_lookup');
+    final rawKey = (album['id'] ?? '').trim();
+    return _libraryBrain[normalizedKey] ?? _libraryBrain[rawKey];
+  }
+
+  bool _isWeakAlbumDisplayTitle(String? value, {String? artist}) {
+    final text = _cleanBrainValue(value);
+    if (text.isEmpty) return true;
+    final lower = text.toLowerCase().trim();
+    if (RegExp(r'^disc\s*\d+([\s_-]*album)?$').hasMatch(lower)) {
+      return true;
+    }
+    if (RegExp(r'^cd\s*\d+([\s_-]*album)?$').hasMatch(lower)) {
+      return true;
+    }
+    if (lower == 'album' || lower == 'unknown album') return true;
+
+    final artistText = _cleanBrainValue(artist).toLowerCase();
+    if (artistText.isNotEmpty) {
+      final normalizedTitle = lower.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+      final normalizedArtist = artistText.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+      if (normalizedTitle == normalizedArtist ||
+          normalizedTitle == '$normalizedArtist album') {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  List<Map<String, String>> _trackRecordsForAlbumKey(String albumKey) {
+    final normalizedKey = _albumCacheKey(albumKey, source: 'album_track_records');
+    if (normalizedKey.isEmpty) return const <Map<String, String>>[];
+    return _libraryTrackIndex.values
+        .where((record) {
+          final id = (record['albumId'] ?? record['albumKey'] ?? '').trim();
+          if (id.isEmpty) return false;
+          return id == normalizedKey ||
+              _albumCacheKey(id, source: 'album_track_record_id') == normalizedKey;
+        })
+        .map((record) => Map<String, String>.from(record))
+        .toList(growable: false);
+  }
+
+  String _mostCommonCleanValue(
+    Iterable<String?> values, {
+    bool Function(String value)? accept,
+  }) {
+    final counts = <String, int>{};
+    final canonical = <String, String>{};
+    for (final raw in values) {
+      final value = _cleanBrainValue(raw);
+      if (value.isEmpty) continue;
+      if (accept != null && !accept(value)) continue;
+      final key = value.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+      counts[key] = (counts[key] ?? 0) + 1;
+      canonical.putIfAbsent(key, () => value);
+    }
+    if (counts.isEmpty) return '';
+    final entries = counts.entries.toList()
+      ..sort((a, b) {
+        final byCount = b.value.compareTo(a.value);
+        if (byCount != 0) return byCount;
+        return a.key.compareTo(b.key);
+      });
+    return canonical[entries.first.key] ?? '';
+  }
+
+  String _albumTitleFromRecords(
+    List<Map<String, String>> records, {
+    String? fallbackArtist,
+  }) {
+    return _mostCommonCleanValue(
+      records.map((record) => record['album']),
+      accept: (value) => !_isWeakAlbumDisplayTitle(value, artist: fallbackArtist),
+    );
+  }
+
+  String _albumArtistFromRecords(List<Map<String, String>> records) {
+    final albumArtist = _mostCommonCleanValue(
+      records.map((record) => record['albumArtist']),
+      accept: (value) => !_isBadArtistName(value),
+    );
+    if (albumArtist.isNotEmpty) return albumArtist;
+    return _mostCommonCleanValue(
+      records.map((record) => record['artist']),
+      accept: (value) => !_isBadArtistName(value),
+    );
+  }
+
+  String _albumCoverFromRecords(List<Map<String, String>> records) {
+    return _mostCommonCleanValue(
+      records.map((record) => record['albumCover']),
+      accept: (value) => _sanitizeCoverSource(value).isNotEmpty,
+    );
+  }
+
+  String _resolvedAlbumTitle(Map<String, String> album) {
+    final key = _albumCacheKey(album, source: 'album_title');
+    final brain = _brainForAlbum(album);
+    final tracks = _tracksForAlbumKey(key);
+    final records = _trackRecordsForAlbumKey(key);
+    final artistHint = _firstNonEmptyString([
+      _albumArtistFromRecords(records),
+      _cleanBrainValue(brain?['artist']),
+      _cleanBrainValue(album['artist']),
+      if (tracks.isNotEmpty) _albumArtistFromTracks(tracks),
+      _artistAlbumFromFolder(album['name'] ?? '')['artist'] ?? '',
+    ]);
+
+    final metadataTitle = _firstNonEmptyString([
+      _albumTitleFromRecords(records, fallbackArtist: artistHint),
+      if (tracks.isNotEmpty) _albumTitleFromTracks(tracks),
+    ]);
+
+    final savedTitle = _firstNonEmptyString([
+      if (!_isWeakAlbumDisplayTitle(brain?['displayName'], artist: artistHint))
+        _cleanBrainValue(brain?['displayName']),
+      if (!_isWeakAlbumDisplayTitle(album['displayName'], artist: artistHint))
+        _cleanBrainValue(album['displayName']),
+      if (!_isWeakAlbumDisplayTitle(brain?['name'], artist: artistHint))
+        _cleanBrainValue(brain?['name']),
+      if (!_isWeakAlbumDisplayTitle(album['album'], artist: artistHint))
+        _cleanBrainValue(album['album']),
+      if (!_isWeakAlbumDisplayTitle(album['title'], artist: artistHint))
+        _cleanBrainValue(album['title']),
+      if (!_isWeakAlbumDisplayTitle(album['name'], artist: artistHint))
+        _cleanBrainValue(album['name']),
+    ]);
+
+    final folderFallback = _cleanBackgroundValue(
+      album['name'] ?? album['displayName'] ?? album['album'] ?? album['title'],
+    );
+    final value = _firstNonEmptyString([metadataTitle, savedTitle, folderFallback]);
+    final titleSource = metadataTitle.isNotEmpty
+        ? 'metadata'
+        : savedTitle.isNotEmpty
+            ? 'saved'
+            : folderFallback.isNotEmpty
+                ? 'folder_fallback'
+                : 'none';
+    final logKey = 'title|$key|$value|$titleSource';
+    if (_albumDisplayLogSeen.add(logKey)) {
+      debugPrint('AlbumDisplay resolved key=$key title="$value" artist="$artistHint" titleSource=$titleSource');
+    }
+    return value.isNotEmpty ? value : 'Album';
+  }
+
+  String _resolvedAlbumArtist(Map<String, String> album) {
+    final key = _albumCacheKey(album, source: 'album_artist');
+    final brain = _brainForAlbum(album);
+    final tracks = _tracksForAlbumKey(key);
+    final records = _trackRecordsForAlbumKey(key);
+
+    final metadataArtist = _firstNonEmptyString([
+      _albumArtistFromRecords(records),
+      if (tracks.isNotEmpty) _albumArtistFromTracks(tracks),
+    ]);
+
+    final savedArtist = _firstNonEmptyString([
+      if (!_isBadArtistName(_cleanBrainValue(brain?['artist'])))
+        _cleanBrainValue(brain?['artist']),
+      if (!_isBadArtistName(_cleanBrainValue(album['artist'])))
+        _cleanBrainValue(album['artist']),
+      if (!_isBadArtistName(_artistAlbumFromFolder(album['name'] ?? '')['artist'] ?? ''))
+        _artistAlbumFromFolder(album['name'] ?? '')['artist'] ?? '',
+    ]);
+
+    final value = _firstNonEmptyString([metadataArtist, savedArtist]);
+    final artistSource = metadataArtist.isNotEmpty
+        ? 'metadata'
+        : savedArtist.isNotEmpty
+            ? 'saved'
+            : 'none';
+    final logKey = 'artist|$key|$value|$artistSource';
+    if (_albumDisplayLogSeen.add(logKey)) {
+      debugPrint('AlbumDisplay resolved key=$key artist="$value" artistSource=$artistSource');
+    }
+    return value.isNotEmpty ? value : 'Unknown Artist';
+  }
+
+  String _resolvedAlbumCover(Map<String, String> album) {
+    final key = _albumCacheKey(album, source: 'album_cover');
+    final brain = _brainForAlbum(album);
+    final records = _trackRecordsForAlbumKey(key);
+
+    final direct = _sanitizeCoverSource(
+      album['cover'] ??
+          album['coverUrl'] ??
+          album['artwork'] ??
+          brain?['cover'] ??
+          brain?['coverUrl'] ??
+          brain?['artwork'] ??
+          '',
+    );
+    if (direct.isNotEmpty) {
+      final logKey = 'cover|$key|$direct';
+      if (_albumDisplayLogSeen.add(logKey)) {
+        debugPrint('AlbumCover key=$key source=album_or_brain hasBytes=false');
+      }
+      return direct;
+    }
+
+    final recordCover = _sanitizeCoverSource(_albumCoverFromRecords(records));
+    if (recordCover.isNotEmpty) {
+      final logKey = 'cover|$key|$recordCover';
+      if (_albumDisplayLogSeen.add(logKey)) {
+        debugPrint('AlbumCover key=$key source=track_index hasBytes=true');
+      }
+      return recordCover;
+    }
+
+    final tracks = _tracksForAlbumKey(key);
+    for (final track in tracks) {
+      final cached = _metaStore.peekFresh(track) ?? _metaStore.peek(track);
+      final coverPath = _sanitizeCoverSource(cached?.coverPath);
+      if (coverPath.isNotEmpty) {
+        final logKey = 'cover|$key|$coverPath';
+        if (_albumDisplayLogSeen.add(logKey)) {
+          debugPrint('AlbumCover key=$key source=metadata hasBytes=true');
+        }
+        return coverPath;
+      }
+    }
+
+    final logKey = 'cover|$key|none';
+    if (_albumDisplayLogSeen.add(logKey)) {
+      debugPrint('AlbumCover key=$key source=none hasBytes=false');
+    }
+    return '';
+  }
+
+  String _albumTitleFromTracks(List<drive.File> tracks) {
+    final titles = <String>[];
+    for (final track in tracks) {
+      final meta = _metaStore.peekFresh(track) ?? _metaStore.peek(track);
+      final album = meta?.album?.trim() ?? '';
+      if (album.isNotEmpty && !_isWeakAlbumDisplayTitle(album)) {
+        titles.add(album);
+      }
+    }
+    return _mostCommonCleanValue(titles);
+  }
+
+  String _albumArtistFromTracks(List<drive.File> tracks) {
+    final artists = <String>[];
+    for (final track in tracks) {
+      final meta = _metaStore.peekFresh(track) ?? _metaStore.peek(track);
+      final artist = meta?.artist.trim() ?? '';
+      if (artist.isNotEmpty && !_isBadArtistName(artist)) {
+        artists.add(artist);
+      }
+    }
+    return _mostCommonCleanValue(artists);
+  }
+
+  Map<String, String> _resolvedAlbumMap(Map<String, String> album) {
+    final key = _albumCacheKey(album, source: 'album_map');
+    final resolved = Map<String, String>.from(album);
+    resolved['albumKey'] = key;
+    if (resolved['id']?.trim().isNotEmpty == true) {
+      resolved['id'] = key;
+    } else {
+      resolved['id'] = key;
+    }
+    resolved['displayName'] = _resolvedAlbumTitle(album);
+    resolved['artist'] = _resolvedAlbumArtist(album);
+    final cover = _resolvedAlbumCover(album);
+    if (cover.isNotEmpty) {
+      resolved['cover'] = cover;
+      resolved['coverUrl'] = cover;
+    }
+    return resolved;
+  }
+
   Future<bool> _mergeKnownTrackDurationsFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -1743,16 +2388,28 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   String _albumCoverForIndex(Map<String, String> album) {
-    return album['cover'] ??
-        album['customCoverUrl'] ??
-        album['coverUrl'] ??
-        album['thumbnailLink'] ??
-        album['artwork'] ??
-        '';
+    final key = _albumCacheKey(album, source: 'album_cover_index');
+    final direct = _sanitizeCoverSource(
+      album['cover'] ??
+          album['customCoverUrl'] ??
+          album['coverUrl'] ??
+          album['thumbnailLink'] ??
+          album['artwork'] ??
+          _libraryBrain[key]?['cover'] ??
+          '',
+    );
+    if (direct.isNotEmpty) return direct;
+    final tracks = _tracksForAlbumKey(key);
+    for (final track in tracks) {
+      final cached = _metaStore.peekFresh(track) ?? _metaStore.peek(track);
+      final cover = _sanitizeCoverSource(cached?.coverPath);
+      if (cover.isNotEmpty) return cover;
+    }
+    return '';
   }
 
   String _albumStableKey(Map<String, String> album) {
-    final id = (album['id'] ?? '').trim();
+    final id = _albumCacheKey(album, source: 'album_stable');
     if (id.isNotEmpty) return id;
     final artist = (album['artist'] ?? '').trim().toLowerCase();
     final name =
@@ -1814,7 +2471,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return changed;
   }
 
-  bool _applyAlbumCoverFromMetadataScan(String albumId, String coverPath) {
+  bool _applyAlbumCoverFromMetadataScan(
+    String albumId,
+    String coverPath, {
+    bool persistChanges = true,
+    bool refreshUi = true,
+  }) {
     if (albumId.trim().isEmpty || coverPath.trim().isEmpty) return false;
 
     var changed = false;
@@ -1837,7 +2499,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (brain != null && brain['cover'] != coverPath) {
       brain['cover'] = coverPath;
       changed = true;
-      _saveLibraryBrain();
+      if (persistChanges) _saveLibraryBrain();
     }
 
     for (final record in _libraryTrackIndex.values) {
@@ -1848,16 +2510,57 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
     }
 
-    if (changed) {
+    if (changed && persistChanges) {
       _librarySearchTextCache.clear();
       _persistAlbums();
       _saveLibraryTrackIndex();
       _invalidateHomeBrowseCache();
       _invalidateLibraryBrowseCache();
-      if (mounted) setState(() {});
+      if (refreshUi && mounted) setState(() {});
     }
 
     return changed;
+  }
+
+  void _queueAlbumCoverFromMetadataScan(String albumId, String coverPath) {
+    final normalizedId = _albumCacheKey(albumId, source: 'metadata_cover_found');
+    if (normalizedId.trim().isEmpty || coverPath.trim().isEmpty) return;
+    _pendingAlbumCoverUpdates[normalizedId] = coverPath;
+    _pendingAlbumCoverFlushTimer ??=
+        Timer(const Duration(milliseconds: 500), _flushPendingAlbumCovers);
+  }
+
+  void _flushPendingAlbumCovers() {
+    _pendingAlbumCoverFlushTimer?.cancel();
+    _pendingAlbumCoverFlushTimer = null;
+    if (_pendingAlbumCoverUpdates.isEmpty) return;
+
+    final pending = Map<String, String>.from(_pendingAlbumCoverUpdates);
+    _pendingAlbumCoverUpdates.clear();
+
+    var changed = false;
+    for (final entry in pending.entries) {
+      if (_applyAlbumCoverFromMetadataScan(
+        entry.key,
+        entry.value,
+        persistChanges: false,
+        refreshUi: false,
+      )) {
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      _librarySearchTextCache.clear();
+      _saveLibraryBrain();
+      _persistAlbums();
+      _saveLibraryTrackIndex();
+      _invalidateHomeBrowseCache();
+      _invalidateLibraryBrowseCache();
+      _nowPlaying.refresh();
+      debugPrint('UI refresh after cover scan');
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _syncForegroundMetadataResults() async {
@@ -1910,7 +2613,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     // Use temporary AudioPlayer to get duration
     final tempPlayer = AudioPlayer();
     try {
-      final source = DriveAudioSource(fileId, token);
+      final source = DriveAudioSource(
+        fileId,
+        token,
+        knownSourceLength: int.tryParse(file.size ?? ''),
+      );
 
       Duration? duration = await tempPlayer
           .setAudioSource(source)
@@ -1973,19 +2680,27 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
             final albumCover = _albumCoverForIndex(album);
 
-            // Duration from known cache
-            final durationMs = _knownTrackDurationsMs[trackId];
+            final durationMs = _knownTrackDurationsMs[trackId] ??
+                _validDurationMsFromValue(
+                    _libraryTrackIndex[trackId]?['durationMs']) ??
+                _validDurationMsFromValue(meta?.durationMs) ??
+                _validDurationMsFromValue(trackMeta['durationMs']);
+            if (durationMs != null) _setKnownTrackDuration(trackId, durationMs);
 
             final record = <String, String>{
               'id': trackId,
               'name': track.name ?? '',
               'albumId': album['id'] ?? '',
-              'albumName': album['name'] ?? '',
+              'albumName': (meta?.album?.trim().isNotEmpty == true)
+                  ? meta!.album!.trim()
+                  : (album['displayName'] ?? album['name'] ?? ''),
               'albumArtist': _canonicalArtistName(
                 albumArtist: album['artist'],
                 trackArtist:
                     meta?.artist ?? trackMeta['artist']?.toString() ?? '',
-                albumName: album['name'] ?? '',
+                albumName: (meta?.album?.trim().isNotEmpty == true)
+                    ? meta!.album!.trim()
+                    : (album['displayName'] ?? album['name'] ?? ''),
               ),
               'albumCover': albumCover,
               'mimeType': track.mimeType ?? '',
@@ -2010,7 +2725,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               record['title'] =
                   trackMeta['title']?.toString() ?? track.name ?? '';
               record['artist'] = trackMeta['artist']?.toString() ?? '';
-              record['album'] = album['name'] ?? '';
+              record['album'] = album['displayName'] ?? album['name'] ?? '';
               record['year'] = trackMeta['year']?.toString() ?? '';
               record['genre'] = trackMeta['genre']?.toString() ?? '';
               record['trackNumber'] =
@@ -2162,6 +2877,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   void _indexTracksForAlbum(
       Map<String, String> album, List<drive.File> tracks) {
+    final albumKey = _albumCacheKey(album, source: 'index_tracks');
     for (final track in tracks) {
       final trackId = DriveUtils.effectiveId(track);
       if (trackId == null || trackId.isEmpty) continue;
@@ -2171,18 +2887,32 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
       final albumCover = _albumCoverForIndex(album);
 
-      // Duration from known cache
-      final durationMs = _knownTrackDurationsMs[trackId];
+      // Preserve any duration that was already indexed, then prefer the
+      // in-memory/persistent known-duration cache. If this track already has
+      // parsed metadata duration, include it so album rows can show duration
+      // without waiting for playback.
+      final previousDurationMs =
+          _validDurationMsFromValue(_libraryTrackIndex[trackId]?['durationMs']);
+      final metadataDurationMs = _validDurationMsFromValue(meta?.durationMs) ??
+          _validDurationMsFromValue(trackMeta['durationMs']);
+      final durationMs = _knownTrackDurationsMs[trackId] ??
+          previousDurationMs ??
+          metadataDurationMs;
+      if (durationMs != null) _setKnownTrackDuration(trackId, durationMs);
 
       final record = <String, String>{
         'id': trackId,
         'name': track.name ?? '',
-        'albumId': album['id'] ?? '',
-        'albumName': album['name'] ?? '',
+        'albumId': albumKey,
+        'albumName': (meta?.album?.trim().isNotEmpty == true)
+            ? meta!.album!.trim()
+            : (album['displayName'] ?? album['name'] ?? ''),
         'albumArtist': _canonicalArtistName(
           albumArtist: album['artist'],
           trackArtist: meta?.artist ?? trackMeta['artist']?.toString() ?? '',
-          albumName: album['name'] ?? '',
+          albumName: (meta?.album?.trim().isNotEmpty == true)
+              ? meta!.album!.trim()
+              : (album['displayName'] ?? album['name'] ?? ''),
         ),
         'albumCover': albumCover,
         'mimeType': track.mimeType ?? '',
@@ -2206,7 +2936,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       } else {
         record['title'] = trackMeta['title']?.toString() ?? track.name ?? '';
         record['artist'] = trackMeta['artist']?.toString() ?? '';
-        record['album'] = album['name'] ?? '';
+        record['album'] = album['displayName'] ?? album['name'] ?? '';
         record['year'] = trackMeta['year']?.toString() ?? '';
         record['genre'] = trackMeta['genre']?.toString() ?? '';
         record['trackNumber'] = trackMeta['trackNumber']?.toString() ?? '';
@@ -2214,6 +2944,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
 
       _libraryTrackIndex[trackId] = record;
+      _albumTracksCache[albumKey] = tracks;
     }
   }
 
@@ -2247,8 +2978,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final parts = cleaned.split(RegExp(r'\s+[–—-]\s+'));
     if (parts.length < 2) return const <String, String>{};
 
-    final artist = _cleanBrainValue(parts.first);
-    final album = _cleanBrainValue(parts.sublist(1).join(' - '));
+    // Assume format is "Album - Artist" (not "Artist - Album")
+    final album = _cleanBrainValue(parts.first);
+    final artist = _cleanBrainValue(parts.sublist(1).join(' - '));
     if (artist.isEmpty || album.isEmpty) return const <String, String>{};
 
     return {
@@ -2379,9 +3111,73 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       });
 
       _invalidateHomeBrowseCache();
+      _rebuildBrainWithCorrectParsing();
       _buildBasicLibraryBrain(save: false);
       _queueArtistImagePrefetch();
+      _prewarmHomeMetadataCache();
     } catch (_) {}
+  }
+
+  void _rebuildBrainWithCorrectParsing() {
+    // Fix any albums that have swapped artist/album from old folder parsing
+    debugPrint('[BrainFix] Checking for swapped metadata in ${_libraryBrain.length} albums');
+    int fixed = 0;
+    
+    for (final entry in _libraryBrain.entries.toList()) {
+      final id = entry.key;
+      final brain = entry.value;
+      final name = brain['name'] ?? '';
+      
+      // Re-parse folder name with correct logic
+      final folderGuess = _artistAlbumFromFolder(name);
+      if (folderGuess.isEmpty) continue;
+      
+      final currentDisplayName = brain['displayName'] ?? '';
+      final currentArtist = brain['artist'] ?? '';
+      final guessedAlbum = folderGuess['album'] ?? '';
+      final guessedArtist = folderGuess['artist'] ?? '';
+      
+      // Check if metadata looks swapped (album name matches artist field, artist name matches displayName field)
+      if (currentDisplayName.isNotEmpty && currentArtist.isNotEmpty &&
+          guessedAlbum.isNotEmpty && guessedArtist.isNotEmpty) {
+        // If current displayName looks like an artist and current artist looks like an album
+        if (currentDisplayName.toLowerCase().contains(guessedArtist.toLowerCase()) &&
+            currentArtist.toLowerCase().contains(guessedAlbum.toLowerCase())) {
+          // Swap them
+          brain['displayName'] = guessedAlbum;
+          brain['artist'] = guessedArtist;
+          _libraryBrain[id] = brain;
+          fixed++;
+          debugPrint('[BrainFix] Fixed $id: "$currentDisplayName" by "$currentArtist" → "$guessedAlbum" by "$guessedArtist"');
+        }
+      }
+    }
+    
+    if (fixed > 0) {
+      debugPrint('[BrainFix] Fixed $fixed albums with swapped metadata');
+      _saveLibraryBrain();
+    }
+  }
+
+  void _prewarmHomeMetadataCache() {
+    if (_albums.isEmpty) return;
+    // Pre-resolve metadata for home tab albums in background
+    // This prevents freeze on first home tab render
+    Future.microtask(() {
+      try {
+        final recent = _recentBrainAlbums(limit: 14);
+        final played = _lastPlayedAlbums(limit: 10);
+        final primaryAlbums = played.isNotEmpty ? played : recent;
+        
+        // Resolve a few albums at a time to avoid blocking
+        for (final album in primaryAlbums.take(5)) {
+          _resolvedAlbumMap(album);
+        }
+        for (final album in _albums.take(10)) {
+          _resolvedAlbumMap(album);
+        }
+      } catch (_) {}
+    });
   }
 
   Future<void> _saveLibraryBrain() async {
@@ -2402,7 +3198,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     bool changed = false;
 
     for (final album in _albums) {
-      final id = album['id'] ?? '';
+      final id = _albumCacheKey(album, source: 'build_brain');
       if (id.isEmpty) continue;
 
       final existing = _libraryBrain[id] ?? <String, String>{};
@@ -2436,6 +3232,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               : rawGenre;
 
       album['dateAdded'] = dateAdded;
+      album['id'] = id;
+      album['albumKey'] = id;
 
       final next = <String, String>{
         'albumId': id,
@@ -2467,7 +3265,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   void _indexAlbumFromTracks(Map<String, String> album, List<drive.File> tracks,
       {bool save = true}) {
-    final id = album['id'] ?? '';
+    final id = _albumCacheKey(album, source: 'index_album');
     if (id.isEmpty) return;
 
     final existing = _libraryBrain[id] ?? <String, String>{};
@@ -2487,15 +3285,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final folderName = album['name'] ?? existing['name'] ?? 'Album';
     final folderGuess = _artistAlbumFromFolder(folderName);
-    final commonAlbum = _mostCommon(albumNames);
+    final commonArtist = _mostCommonCleanValue(
+      artists,
+      accept: (value) => !_isBadArtistName(value),
+    );
+    final commonAlbum = _mostCommonCleanValue(
+      albumNames,
+      accept: (value) => !_isWeakAlbumDisplayTitle(value, artist: commonArtist),
+    );
     final displayName = commonAlbum.isNotEmpty
         ? commonAlbum
-        : folderGuess['album'] ?? folderName;
-    final commonArtist = _mostCommon(artists);
+        : (!_isWeakAlbumDisplayTitle(existing['displayName'], artist: commonArtist)
+            ? existing['displayName']!
+            : (folderGuess['album'] ?? folderName));
     final artist = _canonicalArtistName(
       albumArtist: commonArtist,
       trackArtist: existing['artist'] ?? '',
-      albumName: folderName,
+      albumName: displayName,
     );
     final rawYear = _mostCommon(years).isNotEmpty
         ? _mostCommon(years)
@@ -2524,6 +3330,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     album['year'] = rawYear;
     album['genre'] = rawGenre;
     album['trackCount'] = tracks.length.toString();
+    album['id'] = id;
+    album['albumKey'] = id;
 
     _libraryBrain[id] = next;
     if (save) {
@@ -2538,8 +3346,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (fileId == null) return;
 
     final meta = DriveUtils.getTrackMeta(file);
-    final albumId = _viewingAlbum?['id'] ?? '';
-    final albumName = _viewingAlbum?['name'] ?? '';
+    final safeCoverUrl = _sanitizeCoverSource(coverUrl);
+    final currentAlbum = _viewingAlbum;
+    final albumId = currentAlbum == null
+        ? ''
+        : _albumCacheKey(currentAlbum, source: 'record_play');
+    final albumName = currentAlbum == null ? '' : _resolvedAlbumTitle(currentAlbum);
     final now = DateTime.now().millisecondsSinceEpoch.toString();
 
     _playHistory.removeWhere((item) => item['fileId'] == fileId);
@@ -2548,8 +3360,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       'title': meta['title'] ?? file.name ?? 'Unknown',
       'artist': meta['artist'] ?? 'Unknown Artist',
       'albumId': albumId,
-      'albumName': albumName,
-      'cover': coverUrl ?? _viewingAlbum?['cover'] ?? '',
+      'albumName': albumName.isNotEmpty ? albumName : (meta['album'] ?? ''),
+      'albumKey': albumId,
+      'cover': safeCoverUrl.isNotEmpty
+          ? safeCoverUrl
+          : _sanitizeCoverSource(currentAlbum?['cover']),
       'playedAt': now,
     });
 
@@ -2562,8 +3377,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       existing['albumId'] = albumId;
       existing['name'] = existing['name'] ?? albumName;
       existing['displayName'] = existing['displayName'] ?? albumName;
-      existing['cover'] =
-          coverUrl ?? existing['cover'] ?? _viewingAlbum?['cover'] ?? '';
+      existing['cover'] = safeCoverUrl.isNotEmpty
+          ? safeCoverUrl
+          : _sanitizeCoverSource(existing['cover'] ?? currentAlbum?['cover']);
       existing['playCount'] =
           ((_brainInt(existing, 'playCount')) + 1).toString();
       existing['lastPlayed'] = now;
@@ -2583,16 +3399,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final items = _albums
         .map((album) {
-          final id = album['id'] ?? '';
+          final key = _albumCacheKey(album, source: 'brain_album');
           final brain =
-              Map<String, String>.from(_libraryBrain[id] ?? <String, String>{});
-          brain['albumId'] = id;
-          brain['name'] = brain['name'] ?? album['name'] ?? 'Album';
-          brain['displayName'] =
-              brain['displayName'] ?? brain['name'] ?? 'Album';
-          brain['cover'] = album['cover'] ?? brain['cover'] ?? '';
-          brain['dateAdded'] = album['dateAdded'] ?? brain['dateAdded'] ?? '0';
-          return brain;
+              Map<String, String>.from(_libraryBrain[key] ?? <String, String>{});
+          final resolved = _resolvedAlbumMap({
+            ...album,
+            'id': key,
+            'albumKey': key,
+            ...brain,
+          });
+          resolved['albumId'] = key;
+          resolved['dateAdded'] = album['dateAdded'] ?? brain['dateAdded'] ?? '0';
+          return resolved;
         })
         .where((item) => (item['albumId'] ?? '').isNotEmpty)
         .toList();
@@ -2602,13 +3420,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Map<String, String>? _albumById(String id) {
     for (final album in _albums) {
-      if ((album['id'] ?? '') == id) return album;
+      if (_albumCacheKey(album, source: 'album_by_id') == id ||
+          (album['id'] ?? '') == id) {
+        return album;
+      }
     }
     return null;
   }
 
   void _openAlbumByBrain(Map<String, String> info) {
-    final id = info['albumId'] ?? info['id'] ?? '';
+    final id = _albumCacheKey(info, source: 'open_by_brain');
     final album = _albumById(id);
     if (album != null) _openAlbum(album);
   }
@@ -2795,6 +3616,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     // duration/index maps back to SharedPreferences. First merge the results
     // saved by the background service, then refresh album covers and UI state.
     if (wasRunning && !running) {
+      _flushPendingAlbumCovers();
       _finalMetadataRefreshDone = true;
       _syncForegroundMetadataResults();
     }
@@ -2859,9 +3681,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     if (data['type'] == 'album_cover_found') {
-      final albumId = data['albumId']?.toString() ?? '';
+      final albumId = data['albumKey']?.toString() ??
+          data['albumId']?.toString() ??
+          '';
       final coverPath = data['coverPath']?.toString() ?? '';
-      _applyAlbumCoverFromMetadataScan(albumId, coverPath);
+      _queueAlbumCoverFromMetadataScan(albumId, coverPath);
       return;
     }
 
@@ -2937,23 +3761,38 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void _selectRootTab(int index, {bool animate = true}) {
     if (index < 0 || index > 2) return;
 
+    debugPrint('MainTab select requested index=$index');
     setState(() {
       _navIndex = index;
       _viewingAlbum = null;
       _currentDynamicColors = List<Color>.from(_defaultDynamicColors);
     });
 
-    if (_pageController.hasClients) {
-      if (animate) {
-        _pageController.animateToPage(
-          index,
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-        );
-      } else {
+    void syncController() {
+      if (!_pageController.hasClients) return;
+      try {
         _pageController.jumpToPage(index);
+      } catch (e) {
+        debugPrint('MainTab jumpToPage failed for index=$index: $e');
       }
     }
+
+    syncController();
+    if (animate) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        syncController();
+      });
+    }
+
+    assert(() {
+      final pageValue =
+          _pageController.hasClients ? _pageController.page : null;
+      debugPrint(
+        'MainTab selectedIndex=$_navIndex pageControllerPage=$pageValue',
+      );
+      return true;
+    }());
   }
 
   void _openDriveSourcePage() {
@@ -3047,6 +3886,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           builder: (sheetContext, setSheetState) {
             _settingsSheetSetState = setSheetState;
             final accent = _appAccent;
+            final accountName = (_user?.displayName ?? '').trim();
+            final accountEmail = (_user?.email ?? '').trim();
+            final driveAccountLabel = accountName.isNotEmpty
+                ? accountName
+                : (accountEmail.isNotEmpty ? accountEmail : 'Not connected');
+            final driveFolderLabel =
+                _exploreFolder?.name?.trim().isNotEmpty == true
+                    ? _exploreFolder!.name!.trim()
+                    : (_albums.isNotEmpty
+                        ? (_albums.first['name'] ?? 'Not selected')
+                        : 'Not selected');
+            final driveStatusLabel = _loadingExplore
+                ? 'Loading folders...'
+                : (_driveExplorerLoadError?.trim().isNotEmpty == true
+                    ? 'Error loading folders'
+                    : '${_exploreItems.length} items loaded');
 
             final progress = _metadataTotal > 0
                 ? (_metadataDone / _metadataTotal).clamp(0.0, 1.0)
@@ -3113,21 +3968,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           padding: const EdgeInsets.fromLTRB(22, 10, 22, 28),
                           children: [
                             Text(
-                              'Infame Control Center',
+                              'Settings',
                               style: GoogleFonts.inter(
-                                color:
-                                    _isDarkMode ? _textPri : _lightText,
-                                fontSize: 27,
+                                color: _isDarkMode ? _textPri : _lightTextPri,
+                                fontSize: 24,
                                 fontWeight: FontWeight.w900,
-                                letterSpacing: -0.8,
+                                letterSpacing: -0.5,
                               ),
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Library tools, background metadata scanning, cache cleanup and safety controls live here now.',
+                              'Appearance, music library, performance and Drive controls.',
                               style: GoogleFonts.inter(
-                                color:
-                                    _isDarkMode ? _textSub : _lightSubtext,
+                                color: _isDarkMode ? _textSub : _lightSubtext,
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
                                 height: 1.45,
@@ -3157,7 +4010,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                                     child: Text(
                                       _isDarkMode ? 'Dark Mode' : 'Light Mode',
                                       style: GoogleFonts.inter(
-                                        color: _isDarkMode ? _textPri : _lightText,
+                                        color:
+                                            _isDarkMode ? _textPri : _lightText,
                                         fontSize: 14,
                                         fontWeight: FontWeight.w900,
                                         height: 1.35,
@@ -3249,7 +4103,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             _SettingsPrimaryButton(
                               label: _loadingMetadata
                                   ? 'Cancel metadata scan'
-                                  : 'Scan missing metadata (whole library)',
+                                  : 'Scan metadata',
                               icon: _loadingMetadata
                                   ? Icons.stop_rounded
                                   : Icons.sync_rounded,
@@ -3267,6 +4121,46 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             ),
                             const SizedBox(height: 24),
                             _SettingsSectionTitle(
+                                title: 'Account / Google Drive',
+                                isDarkMode: _isDarkMode),
+                            _SettingsInfoCard(
+                              icon: Icons.account_circle_rounded,
+                              title: driveAccountLabel,
+                              subtitle:
+                                  'Folder: $driveFolderLabel • $driveStatusLabel',
+                              accent: accent,
+                              isDarkMode: _isDarkMode,
+                            ),
+                            const SizedBox(height: 10),
+                            _SettingsActionRow(
+                              icon: Icons.storage_rounded,
+                              title: 'Change Drive folder',
+                              subtitle:
+                                  'Open Drive folders and choose your music source.',
+                              accent: accent,
+                              isDarkMode: _isDarkMode,
+                              onTap: () {
+                                Navigator.pop(sheetContext);
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (mounted) _openDriveSourcePage();
+                                });
+                              },
+                            ),
+                            _SettingsActionRow(
+                              icon: Icons.refresh_rounded,
+                              title: 'Rescan library',
+                              subtitle: _exploreFolder == null
+                                  ? 'Select a Drive folder, then scan it into your library.'
+                                  : 'Scan "$driveFolderLabel" into your library.',
+                              accent: accent,
+                              isDarkMode: _isDarkMode,
+                              onTap: _exploreFolder == null || _isScanning
+                                  ? null
+                                  : () => _scanFolderToLibrary(_exploreFolder!),
+                            ),
+                            const SizedBox(height: 18),
+                            _SettingsSectionTitle(
                                 title: 'Library', isDarkMode: _isDarkMode),
                             _SettingsInfoCard(
                               icon: Icons.album_rounded,
@@ -3276,7 +4170,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                               accent: accent,
                               isDarkMode: _isDarkMode,
                             ),
-                            const SizedBox(height: 10),
                             _SettingsActionRow(
                               icon: Icons.restore_rounded,
                               title: 'Restore previous library',
@@ -3287,16 +4180,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                               onTap: _restoreLibraryBackup,
                             ),
                             _SettingsActionRow(
-                              icon: Icons.refresh_rounded,
-                              title: 'Rescan current Drive folder',
-                              subtitle: _exploreFolder == null
-                                  ? 'Open a folder in Search first, then scan it here.'
-                                  : 'Scan "${_exploreFolder!.name ?? 'folder'}" into your library.',
+                              icon: Icons.tag_rounded,
+                              title: 'Clear metadata cache',
+                              subtitle:
+                                  'Forces titles, artists and albums to be scanned again.',
                               accent: accent,
                               isDarkMode: _isDarkMode,
-                              onTap: _exploreFolder == null || _isScanning
-                                  ? null
-                                  : () => _scanFolderToLibrary(_exploreFolder!),
+                              onTap: _clearMetadataCacheSafely,
+                            ),
+                            _SettingsActionRow(
+                              icon: Icons.image_not_supported_rounded,
+                              title: 'Clear cached covers',
+                              subtitle:
+                                  'Removes local cover images saved by metadata scans.',
+                              accent: accent,
+                              isDarkMode: _isDarkMode,
+                              onTap: _clearCoverCacheSafely,
                             ),
                             _SettingsActionRow(
                               icon: Icons.image_search_rounded,
@@ -3309,46 +4208,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             ),
                             const SizedBox(height: 18),
                             _SettingsSectionTitle(
-                                title: 'Music source', isDarkMode: _isDarkMode),
+                                title: 'Appearance', isDarkMode: _isDarkMode),
                             _SettingsActionRow(
-                              icon: Icons.storage_rounded,
-                              title: 'Google Drive',
+                              icon: Icons.palette_rounded,
+                              title:
+                                  'Accent color: ${_accentModeLabelForMode(_accentMode)}',
                               subtitle:
-                                  'Open your Drive folders, select sources and scan music.',
+                                  'Cycles White, Champagne, Soft Blue and Pink.',
                               accent: accent,
                               isDarkMode: _isDarkMode,
-                              onTap: () {
-                                Navigator.pop(sheetContext);
-                                WidgetsBinding.instance
-                                    .addPostFrameCallback((_) {
-                                  if (mounted) _openDriveSourcePage();
-                                });
-                              },
+                              onTap: () => _cycleAccentMode(setSheetState),
                             ),
-                            const SizedBox(height: 18),
-                            _SettingsSectionTitle(
-                                title: 'Cache', isDarkMode: _isDarkMode),
-                            _SettingsActionRow(
-                              icon: Icons.tag_rounded,
-                              title: 'Clear metadata cache',
-                              subtitle:
-                                  'Forces titles, artists and albums to be scanned again.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: _clearMetadataCacheSafely,
-                            ),
-                            _SettingsActionRow(
-                              icon: Icons.image_not_supported_rounded,
-                              title: 'Clear embedded cover cache',
-                              subtitle:
-                                  'Removes local cover images saved by metadata scans.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: _clearCoverCacheSafely,
-                            ),
-                            const SizedBox(height: 18),
-                            _SettingsSectionTitle(
-                                title: 'Home Screen', isDarkMode: _isDarkMode),
                             _SettingsActionRow(
                               icon: Icons.auto_awesome_rounded,
                               title: 'Rebuild Smart Home index',
@@ -3429,9 +4299,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                                 title: 'Performance', isDarkMode: _isDarkMode),
                             _SettingsActionRow(
                               icon: Icons.tune_rounded,
-                              title:
-                                  'Glass mode: ${_glassModeLabel(_glassMode)}',
-                              subtitle: _glassModeDescription(_glassMode),
+                              title: 'Performance mode',
+                              subtitle:
+                                  'Reduces expensive visuals and background work. Current: ${_glassModeLabel(_glassMode)}',
                               accent: accent,
                               isDarkMode: _isDarkMode,
                               onTap: () => _cycleGlassMode(setSheetState),
@@ -3452,37 +4322,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             ),
                             _SettingsInfoCard(
                               icon: Icons.speed_rounded,
-                              title: 'Album opening optimized',
-                              subtitle:
-                                  'Track lists are cached in memory, album colors are cached, and scrolling cards use fake glass.',
+                              title: 'Performance profile',
+                              subtitle: _glassModeDescription(_glassMode),
                               accent: accent,
                               isDarkMode: _isDarkMode,
                             ),
                             const SizedBox(height: 18),
                             _SettingsSectionTitle(
-                                title: 'Appearance', isDarkMode: _isDarkMode),
-                            _SettingsActionRow(
-                              icon: Icons.palette_rounded,
-                              title:
-                                  'Accent color: ${_accentModeLabelForMode(_accentMode)}',
-                              subtitle:
-                                  'Cycles White, Champagne, Soft Blue and Pink. No loud yellow.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: () => _cycleAccentMode(setSheetState),
-                            ),
-                            const SizedBox(height: 10),
+                                title: 'About / Debug',
+                                isDarkMode: _isDarkMode),
                             _SettingsInfoCard(
-                              icon: Icons.auto_awesome_rounded,
-                              title: 'Dark glass UI enabled',
+                              icon: Icons.info_outline_rounded,
+                              title: 'Scan stats',
                               subtitle:
-                                  'No rainbow headers. The app uses controlled glass, album-color glow, and cheaper scrolling cards.',
+                                  'Fast: $_metadataFast • Deep: $_metadataDeep • Failed: $_metadataFailed',
                               accent: accent,
                               isDarkMode: _isDarkMode,
                             ),
-                            const SizedBox(height: 18),
-                            _SettingsSectionTitle(
-                                title: 'Danger Zone', isDarkMode: _isDarkMode),
                             _SettingsActionRow(
                               icon: Icons.delete_outline_rounded,
                               title: 'Clear app library cache',
@@ -3661,15 +4517,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _pageController.jumpToPage(0);
     }
 
-    _nowPlaying.setTrack(
-      drive.File()..name = '',
-      [],
-      -1,
-      coverUrl: null,
-      colors: _defaultDynamicColors,
-    );
-    _nowPlaying.track = null;
-    _nowPlaying.refresh();
+    _nowPlaying.clearTrack();
 
     if (!mounted) return;
 
@@ -3708,6 +4556,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         : <Map<String, String>>[];
 
     for (final album in loadedAlbums) {
+      final normalizedId = _albumCacheKey(album, source: 'load_album');
+      if (normalizedId.isNotEmpty) {
+        album['id'] = normalizedId;
+        album['albumKey'] = normalizedId;
+      }
       if ((album['dateAdded'] ?? '').isEmpty) {
         album['dateAdded'] = now;
         changed = true;
@@ -3740,6 +4593,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final candidates = _albums
         .map((album) => album['cover'] ?? '')
         .where((cover) => cover.isNotEmpty)
+        .where((cover) => _isLocalCover(cover))
         .take(limit);
 
     for (final cover in candidates) {
@@ -3845,6 +4699,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (fileId == null || bytes.isEmpty) return null;
 
     try {
+      _pendingAlbumCoverFlushTimer?.cancel();
+      _pendingAlbumCoverFlushTimer = null;
+      _pendingAlbumCoverUpdates.clear();
+
       final dir = await getApplicationDocumentsDirectory();
       final coverDir = Directory('${dir.path}/musix_embedded_covers');
       if (!await coverDir.exists()) {
@@ -3867,34 +4725,40 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     Map<String, String>? albumRecord,
   }) {
     final fileId = DriveUtils.effectiveId(file);
+    final safeCoverPath = _sanitizeCoverSource(coverPath);
+    if (safeCoverPath.isEmpty) return;
     bool changed = false;
 
     void applyToAlbum(Map<String, String> album) {
-      album['cover'] = coverPath;
+      album['cover'] = safeCoverPath;
       changed = true;
     }
 
     if (albumRecord != null) {
-      final albumId = albumRecord['id'];
+      final albumId = _albumCacheKey(albumRecord, source: 'apply_cover');
       for (final album in _albums) {
-        if (album['id'] == albumId) {
+        if (_albumCacheKey(album, source: 'apply_cover_saved') == albumId ||
+            album['id'] == albumId) {
           applyToAlbum(album);
           break;
         }
       }
 
-      if (_viewingAlbum != null && _viewingAlbum!['id'] == albumId) {
-        _viewingAlbum!['cover'] = coverPath;
+      if (_viewingAlbum != null &&
+          (_albumCacheKey(_viewingAlbum!, source: 'apply_cover_view') ==
+                  albumId ||
+              _viewingAlbum!['id'] == albumId)) {
+        _viewingAlbum!['cover'] = safeCoverPath;
         changed = true;
       }
     } else if (_viewingAlbum != null && fileId != null) {
       final inCurrentAlbum =
           _albumTracks.any((track) => DriveUtils.effectiveId(track) == fileId);
       if (inCurrentAlbum) {
-        _viewingAlbum!['cover'] = coverPath;
+        _viewingAlbum!['cover'] = safeCoverPath;
         for (final album in _albums) {
           if (album['id'] == _viewingAlbum!['id']) {
-            album['cover'] = coverPath;
+            album['cover'] = safeCoverPath;
             break;
           }
         }
@@ -3905,22 +4769,28 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (_nowPlaying.track != null && fileId != null) {
       final activeId = DriveUtils.effectiveId(_nowPlaying.track!);
       if (activeId == fileId) {
-        _nowPlaying.currentCoverUrl = coverPath;
+        _nowPlaying.currentCoverUrl = safeCoverPath;
         _nowPlaying.refresh();
       }
     }
 
     if (changed) {
       final albumIdForCover = albumRecord?['id'] ?? _viewingAlbum?['id'] ?? '';
+      final normalizedAlbumId = _albumCacheKey(
+        albumRecord ?? _viewingAlbum ?? <String, String>{},
+        source: 'apply_cover_record',
+      );
       if (albumIdForCover.isNotEmpty) {
         for (final record in _libraryTrackIndex.values) {
-          if ((record['albumId'] ?? '') == albumIdForCover) {
-            record['albumCover'] = coverPath;
+          if ((record['albumId'] ?? '') == albumIdForCover ||
+              (record['albumId'] ?? '') == normalizedAlbumId) {
+            record['albumCover'] = safeCoverPath;
           }
         }
         _saveLibraryTrackIndex();
       }
       _persistAlbums();
+      debugPrint('UI refresh after cover scan');
       if (mounted) setState(() {});
     }
   }
@@ -3929,24 +4799,48 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     drive.File file,
     String token, {
     Map<String, String>? albumRecord,
+    bool textOnly = false,
+    bool persistImmediately = true,
+    bool refreshUi = true,
+    http.Client? client,
   }) async {
     final fileId = DriveUtils.effectiveId(file);
     if (fileId == null) return;
 
     final cachedFresh = _metaStore.peekFresh(file);
-    final cachedDurationMs =
-        _validDurationMsFromValue(_knownTrackDurationsMs[fileId]);
-    if (cachedFresh != null && cachedDurationMs != null) return;
+    if (cachedFresh != null &&
+        _validDurationMsFromValue(cachedFresh.durationMs) != null) {
+      return;
+    }
+
+    final albumKey = albumRecord == null
+        ? ''
+        : _albumCacheKey(albumRecord, source: 'metadata_scan');
+    final albumTitle = albumRecord == null ? '' : _resolvedAlbumTitle(albumRecord);
+    final albumArtist =
+        albumRecord == null ? '' : _resolvedAlbumArtist(albumRecord);
+    var metadataAppliedLogged = false;
+    void logApplied() {
+      if (metadataAppliedLogged || albumKey.isEmpty) return;
+      metadataAppliedLogged = true;
+      debugPrint(
+          'MetadataScan applied albumKey=$albumKey albumTitle=$albumTitle albumArtist=$albumArtist');
+      debugPrint('UI refresh after metadata scan');
+    }
 
     File? tempFile;
 
     try {
       final fallback = DriveUtils.getTrackMeta(file);
-      TrackReadResult? fastResult =
-          await FastTagReader.read(file: file, token: token);
+      TrackReadResult? fastResult = await FastTagReader.read(
+        file: file,
+        token: token,
+        readCover: !textOnly,
+        client: client,
+      );
       String? embeddedCoverPath;
 
-      if (fastResult?.coverBytes != null) {
+      if (!textOnly && fastResult?.coverBytes != null) {
         embeddedCoverPath =
             await _saveEmbeddedCover(file, fastResult!.coverBytes!);
         if (embeddedCoverPath != null) {
@@ -3955,26 +4849,51 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         }
       }
 
-      // Extract duration using temporary player if not already cached
-      if (_knownTrackDurationsMs[fileId] == null) {
+      final fastDurationMs =
+          _validDurationMsFromValue(fastResult?.duration?.inMilliseconds);
+
+      // Avoid the slow player-based fallback when the tag reader already found
+      // the duration. This keeps album metadata refreshes independent of active
+      // playback and avoids waiting on the audio player for common formats.
+      if (!textOnly &&
+          _knownTrackDurationsMs[fileId] == null &&
+          fastDurationMs == null) {
         final duration = await _getDurationWithTemporaryPlayer(file, token);
         if (duration != null &&
             duration.inMilliseconds > 0 &&
             duration.inMilliseconds < 86400000) {
-          final durationMs = duration.inMilliseconds;
-          _knownTrackDurationsMs[fileId] = durationMs;
-          _knownTrackDurations[fileId] = duration;
+          _storeDurationForTrackId(
+            fileId,
+            duration.inMilliseconds,
+            persist: false,
+            refreshVisibleAlbum: false,
+          );
+        }
+      }
+      final knownDurationMs = _validDurationMsFromValue(
+        _knownTrackDurationsMs[fileId] ??
+            _libraryTrackIndex[fileId]?['durationMs'],
+      );
+      final metadataDurationMs = fastDurationMs ?? knownDurationMs;
+      if (metadataDurationMs != null) {
+        _storeDurationForTrackId(
+          fileId,
+          metadataDurationMs,
+          persist: false,
+          refreshVisibleAlbum: false,
+        );
+      }
 
-          // Update library track index if record exists
-          if (_libraryTrackIndex.containsKey(fileId)) {
-            _libraryTrackIndex[fileId]!['durationMs'] = durationMs.toString();
-          }
+      Future<void> writeMetadata(TrackMetadata metadata) async {
+        if (persistImmediately) {
+          await _metaStore.put(file, metadata);
+        } else {
+          _metaStore.putMemory(file, metadata);
         }
       }
 
       if (fastResult != null && fastResult.hasUsefulText) {
-        await _metaStore.put(
-          file,
+        await writeMetadata(
           TrackMetadata(
             title: fastResult.title?.trim().isNotEmpty == true
                 ? fastResult.title!.trim()
@@ -3992,11 +4911,39 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             coverPath: embeddedCoverPath,
             modifiedTime: file.modifiedTime?.toIso8601String(),
             size: file.size,
+            durationMs: metadataDurationMs,
           ),
         );
 
-        _nowPlaying.refresh();
-        if (mounted) setState(() {});
+        if (refreshUi) {
+          _nowPlaying.refresh();
+          if (mounted) setState(() {});
+        }
+        logApplied();
+        return;
+      }
+
+      if (textOnly) {
+        await writeMetadata(
+          TrackMetadata(
+            title: fallback['title'] ?? file.name ?? 'Unknown',
+            artist: fallback['artist'] ?? 'Unknown Artist',
+            album: null,
+            year: null,
+            genre: null,
+            trackNumber: null,
+            discNumber: null,
+            coverPath: null,
+            modifiedTime: file.modifiedTime?.toIso8601String(),
+            size: file.size,
+            durationMs: metadataDurationMs,
+          ),
+        );
+        if (refreshUi) {
+          _nowPlaying.refresh();
+          if (mounted) setState(() {});
+        }
+        logApplied();
         return;
       }
 
@@ -4016,8 +4963,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ? metadata.album!.trim()
           : null;
 
-      await _metaStore.put(
-        file,
+      await writeMetadata(
         TrackMetadata(
           title: title,
           artist: artist,
@@ -4029,11 +4975,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           coverPath: embeddedCoverPath,
           modifiedTime: file.modifiedTime?.toIso8601String(),
           size: file.size,
+          durationMs: metadataDurationMs,
         ),
       );
 
-      _nowPlaying.refresh();
-      if (mounted) setState(() {});
+      if (refreshUi) {
+        _nowPlaying.refresh();
+        if (mounted) setState(() {});
+      }
+      logApplied();
     } catch (_) {
       return;
     } finally {
@@ -4055,13 +5005,28 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (!bearer.startsWith('Bearer ')) return;
       final token = bearer.substring(7);
 
-      const batchSize = 2;
+      final client = http.Client();
+      final controller = _ScanConcurrencyController(
+        initialConcurrency: 6,
+        maxConcurrency: 8,
+      );
 
-      for (int i = 0; i < tracks.length; i += batchSize) {
-        if (!mounted) return;
-
-        final batch = tracks.skip(i).take(batchSize).toList();
-        await Future.wait(batch.map((track) => _loadMetadataFor(track, token)));
+      try {
+        await _runWithConcurrency<drive.File>(
+          tracks,
+          controller,
+          (track, index) async {
+            if (!mounted) return;
+            await _loadMetadataFor(
+              track,
+              token,
+              client: client,
+              refreshUi: false,
+            );
+          },
+        );
+      } finally {
+        client.close();
       }
     } catch (_) {
       return;
@@ -4078,11 +5043,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     final missing = _albumTracks.where((track) {
-      final id = DriveUtils.effectiveId(track);
-      final metadataMissing = _metaStore.peekFresh(track) == null;
-      final durationMissing = id == null ||
-          _validDurationMsFromValue(_knownTrackDurationsMs[id]) == null;
-      return metadataMissing || durationMissing;
+      final metadata = _metaStore.peekFresh(track);
+      final trackId = DriveUtils.effectiveId(track);
+      final durationMissing = trackId == null
+          ? true
+          : _validDurationMsFromValue(
+                    _knownTrackDurationsMs[trackId] ??
+                        _libraryTrackIndex[trackId]?['durationMs'],
+                  ) ==
+                  null &&
+              _validDurationMsFromValue(metadata?.durationMs) == null;
+      return metadata == null || durationMissing;
     }).toList();
 
     if (missing.isEmpty) {
@@ -4128,35 +5099,45 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
 
       final token = bearer.substring(7);
-      const batchSize = 2;
+      final client = http.Client();
+      final controller = _ScanConcurrencyController(
+        initialConcurrency: 6,
+        maxConcurrency: 8,
+      );
       int tracksProcessed = 0;
 
-      for (int i = 0; i < missing.length; i += batchSize) {
-        if (!mounted) return;
-
-        final batch = missing.skip(i).take(batchSize).toList();
-
-        await Future.wait(
-          batch.map((track) async {
-            await _loadMetadataFor(track, token, albumRecord: _viewingAlbum);
+      try {
+        await _runWithConcurrency<drive.File>(
+          missing,
+          controller,
+          (track, index) async {
+            if (!mounted) return;
+            await _loadMetadataFor(
+              track,
+              token,
+              albumRecord: _viewingAlbum,
+              textOnly: true,
+              persistImmediately: false,
+              refreshUi: false,
+              client: client,
+            );
             if (mounted) {
               setState(() => _albumMetadataDone++);
             }
-          }),
+            tracksProcessed++;
+            if (tracksProcessed % 100 == 0) {
+              await _metaStore.persistNow();
+            }
+          },
         );
-
-        tracksProcessed += batch.length;
-
-        // Save durations every 20 tracks
-        if (tracksProcessed % 20 == 0) {
-          await _saveKnownTrackDurations();
-        }
+      } finally {
+        client.close();
       }
 
       if (!mounted) return;
 
-      // Final save of durations
-      await _saveKnownTrackDurations();
+      // Final metadata cache flush.
+      await _metaStore.persistNow();
 
       if (_viewingAlbum != null) {
         final sorted = _sortTracksForAlbum(_albumTracks);
@@ -4224,23 +5205,58 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         }
       }
 
+      int freshCacheHits = 0;
+      int missingCount = 0;
+      int changedCount = 0;
       final missing = uniqueTracks.values.where((track) {
-        final id = DriveUtils.effectiveId(track);
-        final metadataMissing = _metaStore.peekFresh(track) == null;
-        final durationMissing = id == null ||
-            _validDurationMsFromValue(_knownTrackDurationsMs[id]) == null;
-        return metadataMissing || durationMissing;
+        final fresh = _metaStore.peekFresh(track);
+        final trackId = DriveUtils.effectiveId(track);
+        final hasDuration = trackId != null &&
+            (_validDurationMsFromValue(
+                      _knownTrackDurationsMs[trackId] ??
+                          _libraryTrackIndex[trackId]?['durationMs'],
+                    ) !=
+                    null ||
+                _validDurationMsFromValue(fresh?.durationMs) != null);
+        if (fresh != null && hasDuration) {
+          freshCacheHits++;
+          return false;
+        }
+        if (_metaStore.peek(track) == null) {
+          missingCount++;
+        } else {
+          changedCount++;
+        }
+        return true;
       }).toList()
         ..sort((a, b) => (a.name ?? '').compareTo(b.name ?? ''));
+
+      _verboseScanLog(
+        'MetadataScan fresh cache hits=$freshCacheHits missing=$missingCount changed=$changedCount',
+      );
+      _verboseScanLog('MetadataScan skipped unchanged=$freshCacheHits');
 
       if (!mounted) return;
 
       if (missing.isEmpty) {
+        for (final album in _albums) {
+          final albumId = album['id'] ?? '';
+          final cachedTracks = _albumTracksCache[albumId];
+          if (cachedTracks != null) {
+            _indexAlbumFromTracks(album, cachedTracks, save: false);
+            _indexTracksForAlbum(album, cachedTracks);
+          }
+        }
+        await _saveLibraryBrain();
+        await _saveLibraryTrackIndex();
+        await _persistAlbums();
+        _invalidateHomeBrowseCache();
+        _invalidateLibraryBrowseCache();
         setState(() => _loadingMetadata = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Metadata is already loaded for your whole library.',
+              'Metadata is already loaded and album display was refreshed.',
               style: GoogleFonts.inter(
                   color: Colors.black, fontWeight: FontWeight.w800),
             ),
@@ -4257,36 +5273,42 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       });
       _updateMetadataProgressUi(force: true);
 
-      const batchSize = 2;
+      final client = http.Client();
+      final controller = _ScanConcurrencyController(
+        initialConcurrency: 6,
+        maxConcurrency: 8,
+      );
       int tracksProcessed = 0;
 
-      for (int i = 0; i < missing.length; i += batchSize) {
-        if (!mounted) return;
-
-        final batch = missing.skip(i).take(batchSize).toList();
-
-        await Future.wait(
-          batch.map((track) async {
+      try {
+        await _runWithConcurrency<drive.File>(
+          missing,
+          controller,
+          (track, index) async {
+            if (!mounted) return;
             final id = DriveUtils.effectiveId(track);
             await _loadMetadataFor(
               track,
               token,
               albumRecord: id == null ? null : trackAlbums[id],
+              textOnly: true,
+              persistImmediately: false,
+              refreshUi: false,
+              client: client,
             );
             if (mounted) {
               _metadataDone++;
               _updateMetadataProgressUi();
             }
-          }),
+            tracksProcessed++;
+            if (tracksProcessed % 100 == 0) {
+              await _metaStore.persistNow();
+              await _saveLibraryTrackIndex();
+            }
+          },
         );
-
-        tracksProcessed += batch.length;
-
-        // Save durations and library index every 20 tracks
-        if (tracksProcessed % 20 == 0) {
-          await _saveKnownTrackDurations();
-          await _saveLibraryTrackIndex();
-        }
+      } finally {
+        client.close();
       }
 
       if (!mounted) return;
@@ -4295,17 +5317,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _updateMetadataProgressUi(force: true);
       await _persistAlbums();
 
-      // Final save of durations and library index
-      await _saveKnownTrackDurations();
+      // Final save of metadata and library index
+      await _metaStore.persistNow();
 
       for (final album in _albums) {
         final albumId = album['id'] ?? '';
         final cachedTracks = _albumTracksCache[albumId];
         if (cachedTracks != null) {
+          _indexAlbumFromTracks(album, cachedTracks, save: false);
           _indexTracksForAlbum(album, cachedTracks);
         }
       }
+      await _saveLibraryBrain();
       await _saveLibraryTrackIndex();
+      _invalidateHomeBrowseCache();
+      _invalidateLibraryBrowseCache();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -4560,9 +5586,26 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         if (_isLocalCover(album['cover'])) {
           album['cover'] = '';
         }
+        album.remove(_embeddedCoverScanFingerprintKey);
+        final albumId = album['id'] ?? '';
+        if (albumId.isNotEmpty) {
+          _libraryBrain[albumId]?.remove(_embeddedCoverScanFingerprintKey);
+          for (final record in _libraryTrackIndex.values) {
+            if ((record['albumId'] ?? '') == albumId &&
+                _isLocalCover(record['albumCover'])) {
+              record['albumCover'] = '';
+            }
+          }
+        }
       }
+      _failedCoverSources.clear();
+      await _saveFailedCoverSources();
 
       await _persistAlbums();
+      await _saveLibraryBrain();
+      await _saveLibraryTrackIndex();
+      _invalidateHomeBrowseCache();
+      _invalidateLibraryBrowseCache();
       if (mounted) setState(() {});
       _showSuccess('Cover cache cleared.');
     } catch (e) {
@@ -4602,9 +5645,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Future<String?> _findEmbeddedCoverForAlbum(Map<String, String> album) async {
-    final tracks = _albumTracks.isNotEmpty
-        ? _sortTracksForAlbum(_albumTracks)
-        : _albumTracksCache[album['id'] ?? ''] ?? <drive.File>[];
+    final tracks = _tracksForAlbumArtwork(album);
 
     for (final track in tracks) {
       final cached = _metaStore.peekFresh(track) ?? _metaStore.peek(track);
@@ -4637,6 +5678,122 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return null;
   }
 
+  List<drive.File> _tracksForAlbumArtwork(Map<String, String> album) {
+    final albumId = _albumCacheKey(album, source: 'album_artwork_tracks');
+    final cachedTracks = _albumTracksCache[albumId];
+    if (cachedTracks != null && cachedTracks.isNotEmpty) {
+      return _sortTracksForAlbum(cachedTracks);
+    }
+
+    if (_viewingAlbum != null &&
+        _albumCacheKey(_viewingAlbum!, source: 'album_artwork_tracks_view') ==
+            albumId) {
+      if (_albumTracks.isNotEmpty) return _sortTracksForAlbum(_albumTracks);
+    }
+
+    return const <drive.File>[];
+  }
+
+  String _albumArtworkLookupKey(Map<String, String> album) {
+    final id = _albumCacheKey(album, source: 'album_artwork_key');
+    if (id.isNotEmpty) return id;
+    final title = _albumTitleForArtwork(album);
+    final artist = _albumArtistForArtwork(album);
+    return _safeArtworkFileName('$artist::$title');
+  }
+
+  String _albumArtworkLookupQuery(
+    Map<String, String> album, {
+    String? title,
+    String? artist,
+    String? year,
+  }) {
+    final albumName = (title ?? _albumTitleForArtwork(album)).trim();
+    final artistName = (artist ?? _albumArtistForArtwork(album)).trim();
+    final albumYear = (year ?? _albumYearForArtwork(album)).trim();
+    final parts = <String>[
+      if (artistName.isNotEmpty && artistName != 'Unknown Artist') artistName,
+      if (albumName.isNotEmpty) albumName,
+      if (albumYear.isNotEmpty) albumYear,
+      'album cover',
+    ];
+    return parts.join(' ').trim();
+  }
+
+  bool _albumArtworkMatchesCandidate({
+    required String albumName,
+    required String artistName,
+    required _ArtworkCandidate candidate,
+  }) {
+    final wantedAlbum = _normalizeArtworkMatch(albumName);
+    final wantedArtist = _normalizeArtworkMatch(artistName);
+    final candAlbum = _normalizeArtworkMatch(candidate.title);
+    final candArtist = _normalizeArtworkMatch(candidate.artist);
+
+    if (wantedAlbum.isEmpty || candAlbum.isEmpty) return false;
+    final albumMatch = wantedAlbum == candAlbum ||
+        candAlbum.contains(wantedAlbum) ||
+        wantedAlbum.contains(candAlbum);
+    if (!albumMatch) return false;
+
+    if (wantedArtist.isNotEmpty && wantedArtist != 'unknown artist') {
+      if (candArtist.isEmpty) return false;
+      final artistMatch = wantedArtist == candArtist ||
+          candArtist.contains(wantedArtist) ||
+          wantedArtist.contains(candArtist);
+      if (!artistMatch) return false;
+    }
+
+    return candidate.confidence >= 0.72;
+  }
+
+  Future<_ArtworkCandidate?> _fetchCoverArtCandidate(
+    Map<String, String> album, {
+    String? title,
+    String? artist,
+    String? year,
+  }) async {
+    final albumName = (title ?? _albumTitleForArtwork(album)).trim();
+    final artistName = (artist ?? _albumArtistForArtwork(album)).trim();
+    final albumYear = (year ?? _albumYearForArtwork(album)).trim();
+    if (albumName.isEmpty) return null;
+
+    final candidates = <_ArtworkCandidate>[];
+    try {
+      candidates.addAll(
+        await _searchTheAudioDbArtworkCandidates(
+            albumName, artistName, albumYear),
+      );
+    } catch (_) {}
+    try {
+      candidates.addAll(
+        await _searchITunesArtworkCandidates(albumName, artistName, albumYear),
+      );
+    } catch (_) {}
+    try {
+      candidates.addAll(
+        await _searchMusicBrainzArtworkCandidates(
+          albumName,
+          artistName,
+          albumYear,
+        ),
+      );
+    } catch (_) {}
+
+    candidates.sort((a, b) => b.confidence.compareTo(a.confidence));
+    for (final candidate in candidates) {
+      if (_albumArtworkMatchesCandidate(
+        albumName: albumName,
+        artistName: artistName,
+        candidate: candidate,
+      )) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
   Future<void> _findCoversForAllAlbums() async {
     if (_user == null || _albums.isEmpty) {
       _showError('Please sign in first.');
@@ -4646,38 +5803,81 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _showSuccess('Starting cover search for ${_albums.length} albums...');
     int found = 0;
     int failed = 0;
+    final usedRemoteUrls = <String, String>{};
+    final coverUsage = <String, Set<String>>{};
+    for (final existingAlbum in _albums) {
+      final existingCover = _albumCoverForIndex(existingAlbum).trim();
+      if (existingCover.isEmpty) continue;
+      final signature =
+          '${_normalizeArtworkMatch(_albumTitleForArtwork(existingAlbum))}::${_normalizeArtworkMatch(_albumArtistForArtwork(existingAlbum))}';
+      coverUsage.putIfAbsent(existingCover, () => <String>{}).add(signature);
+    }
+    final suspiciousCovers = coverUsage.entries
+        .where((entry) => entry.value.length > 1)
+        .map((entry) => entry.key)
+        .toSet();
 
     for (final album in _albums) {
-      final albumId = album['id'] ?? '';
-      final brain = _libraryBrain[albumId] ?? const <String, String>{};
-      final albumName = brain['displayName'] ??
-          album['displayName'] ??
-          album['name'] ??
-          'Unknown Album';
-      final artist = _cleanBrainValue(brain['artist']).isNotEmpty
-          ? brain['artist']!
-          : _cleanBrainValue(album['artist']).isNotEmpty
-              ? album['artist']!
-              : 'Unknown Artist';
+      final albumName = _albumTitleForArtwork(album);
+      final artist = _albumArtistForArtwork(album);
+      final year = _albumYearForArtwork(album);
+      final albumKey = _albumArtworkLookupKey(album);
+      final query = _albumArtworkLookupQuery(
+        album,
+        title: albumName,
+        artist: artist,
+        year: year,
+      );
 
-      if (album['cover'] != null && album['cover']!.isNotEmpty) {
+      _verboseScanLog('Cover lookup albumKey=$albumKey');
+      _verboseScanLog('Cover lookup query=$query');
+
+      final existingCover = _albumCoverForIndex(album).trim();
+      if (existingCover.isNotEmpty &&
+          !suspiciousCovers.contains(existingCover)) {
+        _verboseScanLog('Cover skipped album=$albumKey reason=existing_cover');
         continue;
+      } else if (existingCover.isNotEmpty) {
+        _verboseScanLog(
+            'Cover lookup albumKey=$albumKey reason=suspicious_existing_cover');
       }
 
       final embedded = await _findEmbeddedCoverForAlbum(album);
       if (embedded != null && embedded.isNotEmpty) {
         album['cover'] = embedded;
         found++;
+        _verboseScanLog(
+            'Cover accepted album=$albumKey url=$embedded source=embedded');
         await _extractAlbumColors(embedded, albumName);
         continue;
       }
 
-      final fetched = await _fetchCoverArt(albumName, artist);
-      if (fetched != null && fetched.isNotEmpty) {
-        album['cover'] = fetched;
+      final candidate = await _fetchCoverArtCandidate(
+        album,
+        title: albumName,
+        artist: artist,
+        year: year,
+      );
+      if (candidate != null && candidate.imageUrl.isNotEmpty) {
+        final remoteUrl = candidate.imageUrl;
+        final normalizedAlbum =
+            '${_normalizeArtworkMatch(albumName)}::${_normalizeArtworkMatch(artist)}';
+        final existingAlbum = usedRemoteUrls[remoteUrl];
+        if (existingAlbum != null && existingAlbum != normalizedAlbum) {
+          _verboseScanLog(
+              'Cover rejected album=$albumKey reason=duplicate_remote_url');
+          failed++;
+          continue;
+        }
+        usedRemoteUrls[remoteUrl] = normalizedAlbum;
+        album['cover'] = remoteUrl;
         found++;
-        await _extractAlbumColors(fetched, albumName);
+        _verboseScanLog(
+            'Cover accepted album=$albumKey url=$remoteUrl source=${candidate.source}');
+        await _extractAlbumColors(remoteUrl, albumName);
       } else {
+        _verboseScanLog(
+            'Cover skipped album=$albumKey reason=no_confident_match');
         failed++;
       }
     }
@@ -4687,34 +5887,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   String _albumTitleForArtwork(Map<String, String> album) {
-    final id = album['id'] ?? '';
-    final brain = _libraryBrain[id] ?? const <String, String>{};
-    return (brain['displayName'] ??
-            album['displayName'] ??
-            album['name'] ??
-            'Unknown Album')
-        .trim();
+    return _resolvedAlbumTitle(album);
   }
 
   String _albumArtistForArtwork(Map<String, String> album) {
-    final id = album['id'] ?? '';
-    final brain = _libraryBrain[id] ?? const <String, String>{};
-    final fromBrain = _cleanBrainValue(brain['artist'] ?? '');
-    if (fromBrain.isNotEmpty) return fromBrain;
-    final fromAlbum = _cleanBrainValue(album['artist'] ?? '');
-    if (fromAlbum.isNotEmpty) return fromAlbum;
-    if (_albumTracks.isNotEmpty) {
-      final meta = _metaStore.peekFresh(_albumTracks.first) ??
-          _metaStore.peek(_albumTracks.first);
-      if ((meta?.artist ?? '').trim().isNotEmpty) return meta!.artist.trim();
-      return DriveUtils.getTrackMeta(_albumTracks.first)['artist'] ??
-          'Unknown Artist';
-    }
-    return 'Unknown Artist';
+    return _resolvedAlbumArtist(album);
   }
 
   String _albumYearForArtwork(Map<String, String> album) {
-    final id = album['id'] ?? '';
+    final id = _albumCacheKey(album, source: 'album_artwork_year');
     final brain = _libraryBrain[id] ?? const <String, String>{};
     return (brain['year'] ?? album['year'] ?? '').trim();
   }
@@ -5001,8 +6182,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
     }
 
-    if (_nowPlaying.currentCoverUrl == currentCover ||
-        (_viewingAlbum != null && (_viewingAlbum!['id'] ?? '') == albumId)) {
+    if (albumId.isNotEmpty && _currentPlayingAlbumId() == albumId) {
       _nowPlaying.currentCoverUrl = coverPath;
       _nowPlaying.refresh();
     }
@@ -5017,7 +6197,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _revertAlbumArtwork(Map<String, String> album) async {
-    final albumId = album['id'] ?? '';
+    final albumId = _albumCacheKey(album, source: 'revert_artwork');
     final fallback = album['driveCover'] ??
         album['coverUrl'] ??
         album['thumbnailLink'] ??
@@ -5034,12 +6214,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     revert(album);
     for (final savedAlbum in _albums) {
-      if ((savedAlbum['id'] ?? '') == albumId) {
+      if (_albumCacheKey(savedAlbum, source: 'revert_artwork_saved') ==
+              albumId ||
+          (savedAlbum['id'] ?? '') == albumId) {
         revert(savedAlbum);
         break;
       }
     }
-    if (_viewingAlbum != null && (_viewingAlbum!['id'] ?? '') == albumId) {
+    if (_viewingAlbum != null &&
+        (_albumCacheKey(_viewingAlbum!, source: 'revert_artwork_view') ==
+            albumId ||
+            (_viewingAlbum!['id'] ?? '') == albumId)) {
       revert(_viewingAlbum!);
     }
 
@@ -5368,20 +6553,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final album = _viewingAlbum;
     if (album == null) return;
 
-    final albumId = album['id'] ?? '';
+    final normalized = _resolvedAlbumMap(album);
+    final albumId = normalized['id'] ?? '';
     final brain = _libraryBrain[albumId] ?? const <String, String>{};
-    final albumName = brain['displayName'] ??
-        album['displayName'] ??
-        album['name'] ??
-        'Unknown Album';
-    final artist = _cleanBrainValue(brain['artist']).isNotEmpty
-        ? brain['artist']!
-        : _cleanBrainValue(album['artist']).isNotEmpty
-            ? album['artist']!
-            : _albumTracks.isNotEmpty
-                ? DriveUtils.getTrackMeta(_albumTracks.first)['artist'] ??
-                    'Unknown Artist'
-                : 'Unknown Artist';
+    final albumName = normalized['displayName'] ?? normalized['name'] ?? 'Unknown Album';
+    final artist = normalized['artist'] ?? 'Unknown Artist';
 
     _showSuccess('Checking embedded cover first...');
 
@@ -5390,7 +6566,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       setState(() {
         album['cover'] = embedded;
         for (final savedAlbum in _albums) {
-          if (savedAlbum['id'] == album['id']) {
+          if (_albumCacheKey(savedAlbum, source: 'show_artwork_saved') ==
+                  albumId ||
+              savedAlbum['id'] == album['id']) {
             savedAlbum['cover'] = embedded;
             break;
           }
@@ -5413,7 +6591,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     setState(() {
       album['cover'] = fetched;
       for (final savedAlbum in _albums) {
-        if (savedAlbum['id'] == album['id']) {
+        if (_albumCacheKey(savedAlbum, source: 'show_artwork_saved') ==
+                albumId ||
+            savedAlbum['id'] == album['id']) {
           savedAlbum['cover'] = fetched;
           break;
         }
@@ -5604,13 +6784,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Future<String?> _fetchCoverArt(String albumName, String artistName) async {
     try {
-      final caa = await _coverFromCoverArtArchive(albumName, artistName);
-      if (caa != null && caa.isNotEmpty) return caa;
-    } catch (_) {}
-
-    try {
-      final itunes = await _coverFromITunes(albumName, artistName);
-      if (itunes != null && itunes.isNotEmpty) return itunes;
+      final candidate = await _fetchCoverArtCandidate(
+        <String, String>{'name': albumName, 'artist': artistName},
+        title: albumName,
+        artist: artistName,
+      );
+      if (candidate != null && candidate.imageUrl.isNotEmpty) {
+        return candidate.imageUrl;
+      }
     } catch (_) {}
 
     return null;
@@ -5688,6 +6869,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
       setState(() {
         _albums = uniqueAlbums.values.toList()
+          ..forEach((album) {
+            final normalizedId = _albumCacheKey(album, source: 'scan_album');
+            if (normalizedId.isNotEmpty) {
+              album['id'] = normalizedId;
+              album['albumKey'] = normalizedId;
+            }
+          })
           ..sort((a, b) => (a['name'] ?? '').compareTo(b['name'] ?? ''));
         _librarySearchTextCache.clear();
         _shuffledExploreAlbums = (List<Map<String, String>>.from(_albums)
@@ -5832,6 +7020,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
 
+    if (_isBlockedCoverSource(coverUrl)) {
+      _albumColorCache[key] = fallback;
+      _saveAlbumColorCache();
+      if (mounted) setState(() => _currentDynamicColors = fallback);
+      return;
+    }
+
     try {
       final provider = _coverProvider(coverUrl);
       if (provider == null) throw Exception('Missing cover provider');
@@ -5948,15 +7143,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   // ── Album View Logic ──────────────────────────────────────────────────────
   Future<void> _openAlbum(Map<String, String> album) async {
-    final albumId = album['id'] ?? album['name'] ?? '';
-    final albumName = album['name'] ?? 'Unknown Album';
+    final normalizedAlbum = _resolvedAlbumMap(album);
+    final albumId = _albumCacheKey(normalizedAlbum, source: 'open_album');
+    final albumName = normalizedAlbum['displayName'] ?? album['name'] ?? 'Unknown Album';
     final cachedTracks = _albumTracksCache[albumId];
     final sortedCachedTracks =
         cachedTracks == null ? null : _sortTracksForAlbum(cachedTracks);
     final cachedColors = _albumColorCache[albumId];
 
     setState(() {
-      _viewingAlbum = album;
+      _viewingAlbum = normalizedAlbum;
       _loadingAlbum = sortedCachedTracks == null;
       _albumTracks = sortedCachedTracks ?? <drive.File>[];
       _albumMetadataLoading = false;
@@ -5968,16 +7164,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _extractAlbumColors(
-        album['cover'] ?? '',
+        normalizedAlbum['cover'] ?? '',
         albumName,
         cacheKey: albumId,
       );
     });
 
     if (sortedCachedTracks != null) {
-      _applyFirstCachedEmbeddedCover(album, sortedCachedTracks);
-      _indexAlbumFromTracks(album, sortedCachedTracks);
-      _indexTracksForAlbum(album, sortedCachedTracks);
+      _applyFirstCachedEmbeddedCover(normalizedAlbum, sortedCachedTracks);
+      _indexAlbumFromTracks(normalizedAlbum, sortedCachedTracks);
+      _indexTracksForAlbum(normalizedAlbum, sortedCachedTracks);
+      unawaited(
+          _hydrateAlbumDurationsInBackground(albumId, sortedCachedTracks));
       return;
     }
 
@@ -5990,9 +7188,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (!mounted) return;
 
       _albumTracksCache[albumId] = tracks;
-      _applyFirstCachedEmbeddedCover(album, tracks);
-      _indexAlbumFromTracks(album, tracks, save: false);
-      _indexTracksForAlbum(album, tracks);
+      _applyFirstCachedEmbeddedCover(normalizedAlbum, tracks);
+      _indexAlbumFromTracks(normalizedAlbum, tracks, save: false);
+      _indexTracksForAlbum(normalizedAlbum, tracks);
       _saveLibraryBrain();
       _persistAlbums();
 
@@ -6000,9 +7198,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _albumTracks = tracks;
         _loadingAlbum = false;
       });
+      unawaited(_hydrateAlbumDurationsInBackground(albumId, tracks));
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _precacheTrackArtwork(album['cover'] ?? '');
+        if (mounted) _precacheTrackArtwork(normalizedAlbum['cover'] ?? '');
       });
     } catch (e) {
       _showError('Failed to load album: $e');
@@ -6043,10 +7242,139 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _precacheTrackArtwork(String coverUrl) {
-    if (coverUrl.isEmpty) return;
+    if (coverUrl.isEmpty || !_isLocalCover(coverUrl)) return;
     final provider = _coverProvider(coverUrl);
     if (provider != null) {
       precacheImage(provider, context).catchError((_) {});
+    }
+  }
+
+  Future<void> _hydrateAlbumDurationsInBackground(
+    String albumId,
+    List<drive.File> tracks,
+  ) async {
+    final normalizedAlbumId = albumId.trim();
+    if (normalizedAlbumId.isEmpty || tracks.isEmpty) return;
+    if (_hydratingAlbumDurations.contains(normalizedAlbumId) ||
+        _hydratedAlbumDurations.contains(normalizedAlbumId)) {
+      return;
+    }
+    _hydratingAlbumDurations.add(normalizedAlbumId);
+
+    var filled = 0;
+    var stillMissing = 0;
+
+    final missingTracks = <drive.File>[];
+    for (final track in tracks) {
+      if (_durationMsForTrack(track) == null) {
+        missingTracks.add(track);
+      }
+    }
+    _verboseScanLog(
+        'AlbumDurationHydration start album=$normalizedAlbumId missing=${missingTracks.length}');
+
+    try {
+      // First pass: hydrate from already cached metadata/index only.
+      var quickChanged = false;
+      for (final track in missingTracks) {
+        final trackId = DriveUtils.effectiveId(track);
+        if (trackId == null || trackId.isEmpty) continue;
+
+        final durationMs = _durationMsForTrack(track);
+        if (durationMs == null) continue;
+
+        _storeDurationForTrackId(
+          trackId,
+          durationMs,
+          persist: false,
+          refreshVisibleAlbum: false,
+        );
+        quickChanged = true;
+        filled++;
+        _verboseScanLog(
+            'AlbumDurationHydration cached track=$trackId durationMs=$durationMs');
+      }
+
+      if (quickChanged) {
+        await _saveKnownTrackDurations();
+        await _saveLibraryTrackIndex();
+        _invalidateLibraryBrowseCache();
+        if (mounted && _viewingAlbum?['id'] == normalizedAlbumId) {
+          setState(() {});
+        }
+      }
+
+      // Second pass: best-effort backfill for truly missing durations.
+      if (_user == null) {
+        stillMissing = missingTracks.where((t) => _durationMsForTrack(t) == null).length;
+        return;
+      }
+
+      final headers = await _user!.authHeaders;
+      final bearer = headers['Authorization'] ?? headers['authorization'] ?? '';
+      if (!bearer.startsWith('Bearer ')) return;
+      final token = bearer.substring(7);
+
+      var changed = false;
+      var batchedUiUpdates = 0;
+      final client = http.Client();
+      try {
+        for (final track in missingTracks) {
+          final trackId = DriveUtils.effectiveId(track);
+          if (trackId == null || trackId.isEmpty) continue;
+
+          final existing = _durationMsForTrack(track);
+          if (existing != null) continue;
+
+          final fastResult = await FastTagReader.read(
+            file: track,
+            token: token,
+            readCover: false,
+            client: client,
+          );
+          final durationMs =
+              _validDurationMsFromValue(fastResult?.duration?.inMilliseconds);
+          if (durationMs == null) continue;
+
+          _storeDurationForTrackId(
+            trackId,
+            durationMs,
+            persist: false,
+            refreshVisibleAlbum: false,
+          );
+          changed = true;
+          filled++;
+          batchedUiUpdates++;
+          _verboseScanLog(
+              'AlbumDurationHydration cached track=$trackId durationMs=$durationMs');
+
+          if (batchedUiUpdates >= 6 &&
+              mounted &&
+              _viewingAlbum?['id'] == normalizedAlbumId) {
+            batchedUiUpdates = 0;
+            setState(() {});
+          }
+        }
+      } finally {
+        client.close();
+      }
+
+      if (changed) {
+        await _saveKnownTrackDurations();
+        await _saveLibraryTrackIndex();
+        _invalidateLibraryBrowseCache();
+        if (mounted && _viewingAlbum?['id'] == normalizedAlbumId) {
+          setState(() {});
+        }
+      }
+      stillMissing = tracks.where((t) => _durationMsForTrack(t) == null).length;
+    } catch (_) {
+      // Best effort only.
+    } finally {
+      _hydratingAlbumDurations.remove(normalizedAlbumId);
+      _hydratedAlbumDurations.add(normalizedAlbumId);
+      _verboseScanLog(
+          'AlbumDurationHydration complete album=$normalizedAlbumId filled=$filled stillMissing=$stillMissing');
     }
   }
 
@@ -6294,24 +7622,211 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   // ── Playback ──────────────────────────────────────────────────────────────
-  Future<void> _handleTrackCompleted() async {
-    if (_changingTrack || _handlingTrackCompletion) return;
-
-    _handlingTrackCompletion = true;
+  Future<void> _handleTrackCompleted({String reason = 'unknown'}) async {
+    if (_changingTrack || _handlingPlaybackComplete) return;
 
     try {
+      final currentTrack = _nowPlaying.track ?? _nowPlaying.currentTrack;
+      if (currentTrack == null) return;
+
+      final queue = _cleanPlaybackQueue(_nowPlaying.queue, currentTrack);
+      if (queue.isEmpty) return;
+
+      final currentKey = _trackKey(currentTrack);
+      int currentIndex = _nowPlaying.queueIndex;
+      if (currentIndex < 0 ||
+          currentIndex >= queue.length ||
+          _trackKey(queue[currentIndex]) != currentKey) {
+        currentIndex =
+            queue.indexWhere((track) => _trackKey(track) == currentKey);
+      }
+      if (currentIndex < 0) currentIndex = 0;
+
+      final completionSignature =
+          '$currentKey|$currentIndex|${_playRequestSerial.toString()}';
+      if (_lastHandledCompletionSignature == completionSignature) return;
+
+      _handlingPlaybackComplete = true;
+      _lastHandledCompletionSignature = completionSignature;
+      debugPrint('AutoAdvance trigger reason=$reason');
+      debugPrint(
+          'Playback completed detected current=$currentIndex len=${queue.length}');
+
       if (_nowPlaying.repeatOne) {
         await _player.seek(Duration.zero);
         await _player.play();
         return;
       }
 
-      await _playNext(autoAdvance: true);
+      final nextIndex = currentIndex + 1;
+      if (nextIndex < queue.length) {
+        debugPrint('AutoAdvance next index=$nextIndex/${queue.length}');
+        debugPrint(
+            'Playback completed -> next index=$nextIndex/${queue.length}');
+        final nextFile = queue[nextIndex];
+        final nextId = DriveUtils.effectiveId(nextFile) ?? _trackKey(nextFile);
+        debugPrint('AutoAdvance loading next id=$nextId');
+        await _playSong(
+          nextFile,
+          queue: queue,
+          idx: nextIndex,
+          coverUrl: _resolveCurrentTrackCover(
+            nextFile,
+            queue: queue,
+            idx: nextIndex,
+            fallbackCoverUrl: _nowPlaying.currentCoverUrl,
+          ),
+          colors: _nowPlaying.dynamicColors,
+          autoPlay: true,
+          triggerReason: reason,
+        );
+        debugPrint(
+            'AutoAdvance completed next started playing=${_player.playing}');
+        return;
+      }
+
+      debugPrint('Playback completed -> end of queue');
+      await _player.pause();
+      await _player.seek(Duration.zero);
     } catch (e) {
+      _lastHandledCompletionSignature = '';
       _showError('Could not continue playback: $e');
     } finally {
-      await Future<void>.delayed(const Duration(milliseconds: 180));
-      _handlingTrackCompletion = false;
+      _handlingPlaybackComplete = false;
+    }
+  }
+
+  bool _tryAutoAdvanceCurrentTrack(String reason) {
+    final current = _nowPlaying.track ?? _nowPlaying.currentTrack;
+    if (current == null) return false;
+    final key = _trackKey(current);
+    if (key.isEmpty) return false;
+
+    final queue = _cleanPlaybackQueue(_nowPlaying.queue, current);
+    int idx = _nowPlaying.queueIndex;
+    if (idx < 0 || idx >= queue.length || _trackKey(queue[idx]) != key) {
+      idx = queue.indexWhere((track) => _trackKey(track) == key);
+    }
+    if (idx < 0) idx = 0;
+
+    final signature = '$key|$idx|${_playRequestSerial.toString()}';
+    if (_lastHandledCompletionSignature == signature) return false;
+
+    unawaited(_handleTrackCompleted(reason: reason));
+    return true;
+  }
+
+  void _maybeAutoAdvanceAfterPlaybackStop() {
+    if (_changingTrack || _handlingPlaybackComplete) return;
+    if (_player.playing) return;
+
+    final duration = _player.duration;
+    final position = _player.position;
+    if (duration == null || duration.inMilliseconds <= 0) return;
+    if (position.inMilliseconds < math.max(0, duration.inMilliseconds - 900)) {
+      return;
+    }
+
+    _tryAutoAdvanceCurrentTrack('stopped_near_end');
+  }
+
+  void _maybeAutoAdvanceFromPlaybackEvent(PlaybackEvent event) {
+    if (_changingTrack || _handlingPlaybackComplete) return;
+    final duration = event.duration ?? _player.duration;
+    if (duration == null || duration.inMilliseconds <= 0) return;
+    final thresholdMs = math.max(0, duration.inMilliseconds - 250);
+    if (event.updatePosition.inMilliseconds < thresholdMs) return;
+    _tryAutoAdvanceCurrentTrack('event_reached_end');
+  }
+
+  void _startPlaybackEndWatchdog() {
+    _playbackEndWatchdog?.cancel();
+    _playbackEndWatchdog = Timer.periodic(
+      const Duration(milliseconds: 450),
+      (_) => _checkPlaybackEndWatchdog(),
+    );
+  }
+
+  void _checkPlaybackEndWatchdog() {
+    if (_changingTrack || _handlingPlaybackComplete) return;
+
+    final duration = _player.duration;
+    if (duration == null || duration.inMilliseconds <= 0) {
+      _lastWatchdogPosition = Duration.zero;
+      _watchdogNearEndTicks = 0;
+      return;
+    }
+
+    final position = _player.position;
+    final remainingMs = duration.inMilliseconds - position.inMilliseconds;
+    final nearEnd = remainingMs <= 900 && position.inMilliseconds > 1000;
+
+    if (!nearEnd) {
+      _lastWatchdogPosition = position;
+      _watchdogNearEndTicks = 0;
+      return;
+    }
+
+    final movedMs =
+        (position.inMilliseconds - _lastWatchdogPosition.inMilliseconds).abs();
+    _lastWatchdogPosition = position;
+
+    // Some Drive/FLAC streams can sit at the last few hundred ms with
+    // processingState=ready and playing=true. In that case just_audio may not
+    // emit completed until the user taps pause/play. Detect the stuck tail and
+    // advance ourselves.
+    final stuckAtTail = movedMs < 120;
+    if (_player.playing && !stuckAtTail) {
+      _watchdogNearEndTicks = 0;
+      return;
+    }
+
+    _watchdogNearEndTicks++;
+    if (_watchdogNearEndTicks < 2) return;
+
+    _watchdogNearEndTicks = 0;
+    _tryAutoAdvanceCurrentTrack(
+      _player.playing ? 'watchdog_stuck_near_end' : 'watchdog_stopped_near_end',
+    );
+  }
+
+  Future<void> _ensureAutoAdvancedTrackAudiblyStarts(
+    int requestSerial,
+    String activeKey,
+  ) async {
+    if (_autoAdvanceStartNudgeRunning) return;
+    _autoAdvanceStartNudgeRunning = true;
+    try {
+      final before = _player.position;
+      await Future<void>.delayed(const Duration(milliseconds: 650));
+      if (!mounted) return;
+      if (requestSerial != _playRequestSerial) return;
+      if (_trackKey(
+              _nowPlaying.track ?? _nowPlaying.currentTrack ?? drive.File()) !=
+          activeKey) {
+        return;
+      }
+      if (!_player.playing ||
+          _player.processingState != ProcessingState.ready) {
+        return;
+      }
+
+      final after = _player.position;
+      final movedMs = after.inMilliseconds - before.inMilliseconds;
+      if (movedMs > 180) return;
+
+      debugPrint(
+          'AutoAdvance nudge: player reported playing but position did not move');
+      await _player.pause();
+      await Future<void>.delayed(const Duration(milliseconds: 35));
+      if (!mounted || requestSerial != _playRequestSerial) return;
+      await _player.play();
+      _infameAudioHandler?.syncPlaybackStateFromPlayer();
+      _syncAudioServicePlaybackState();
+    } catch (e) {
+      debugPrint('AutoAdvance nudge failed: $e');
+    } finally {
+      _autoAdvanceStartNudgeRunning = false;
     }
   }
 
@@ -6319,6 +7834,50 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final id = DriveUtils.effectiveId(file);
     if (id != null && id.trim().isNotEmpty) return id.trim();
     return (file.name ?? '').trim().toLowerCase();
+  }
+
+  String _currentPlayingAlbumId() {
+    final current = _nowPlaying.currentTrack ?? _nowPlaying.track;
+    final currentId = (_nowPlaying.currentFileId?.trim().isNotEmpty == true)
+        ? _nowPlaying.currentFileId!.trim()
+        : current == null
+            ? ''
+            : (DriveUtils.effectiveId(current) ?? '').trim();
+    if (currentId.isEmpty) return '';
+    return (_libraryTrackIndex[currentId]?['albumId'] ?? '').trim();
+  }
+
+  drive.File? _resolveMiniPlayerTrack() {
+    final current = _nowPlaying.currentTrack ?? _nowPlaying.track;
+    if (current != null) return current;
+
+    final currentId = _nowPlaying.currentFileId?.trim() ?? '';
+    if (currentId.isNotEmpty) {
+      final record = _libraryTrackIndex[currentId];
+      final synthetic = drive.File()..id = currentId;
+      final artist = (record?['artist'] ?? record?['trackArtist'] ?? '').trim();
+      final title = (record?['title'] ?? record?['fileName'] ?? '').trim();
+      if (artist.isNotEmpty && title.isNotEmpty) {
+        synthetic.name = '$artist - $title';
+      } else if (title.isNotEmpty) {
+        synthetic.name = title;
+      } else {
+        synthetic.name = currentId;
+      }
+      return synthetic;
+    }
+
+    if (_nowPlaying.queue.isNotEmpty &&
+        _nowPlaying.queueIndex >= 0 &&
+        _nowPlaying.queueIndex < _nowPlaying.queue.length) {
+      return _nowPlaying.queue[_nowPlaying.queueIndex];
+    }
+
+    if (_nowPlaying.queue.isNotEmpty) {
+      return _nowPlaying.queue.first;
+    }
+
+    return null;
   }
 
   List<drive.File> _cleanPlaybackQueue(
@@ -6361,6 +7920,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     int? idx,
     String? coverUrl,
     List<Color>? colors,
+    bool autoPlay = true,
+    String? triggerReason,
   }) async {
     _ensureAudioServicePlayerAttached();
     final fileId = DriveUtils.effectiveId(file);
@@ -6368,6 +7929,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final requestSerial = ++_playRequestSerial;
     final activeQueue = _cleanPlaybackQueue(queue, file);
+    debugPrint(
+        'Queue set from album length=${activeQueue.length} index=${idx ?? 0}');
     final wantedKey = _trackKey(file);
 
     var activeIndex = -1;
@@ -6431,11 +7994,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _saveLastPlayed(activeFile, coverUrl: resolvedCoverUrl);
       _loadMetadataFor(activeFile, token, albumRecord: _viewingAlbum);
 
-      final source = DriveAudioSource(activeFileId, token);
+      final knownSourceLength = int.tryParse(activeFile.size ?? '') ??
+          int.tryParse(_libraryTrackIndex[activeFileId]?['size'] ?? '');
+      final source = DriveAudioSource(
+        activeFileId,
+        token,
+        knownSourceLength: knownSourceLength,
+      );
       debugPrint(
         'Infame _playSong loading ${source.runtimeType} '
         'id=$activeFileId name=${activeFile.name}',
       );
+      _durationCacheTrackKey = '';
       await _player.stop();
       if (requestSerial != _playRequestSerial) return;
 
@@ -6450,28 +8020,29 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
       if (requestSerial != _playRequestSerial) return;
 
-      final loadedDuration = _player.duration;
-      final activeKey = _trackKey(activeFile);
-      if (activeKey.isNotEmpty &&
-          loadedDuration != null &&
-          loadedDuration.inSeconds > 0) {
-        _knownTrackDurations[activeKey] = loadedDuration;
-        final durationMs = loadedDuration.inMilliseconds;
-        _knownTrackDurationsMs[activeKey] = durationMs;
+      _durationCacheTrackKey = _trackKey(activeFile);
+      _cacheCurrentPlaybackDuration(_player.duration);
 
-        // Update library track index if exists
-        if (_libraryTrackIndex.containsKey(activeKey)) {
-          _libraryTrackIndex[activeKey]!['durationMs'] = durationMs.toString();
-          _saveLibraryTrackIndex();
+      if (autoPlay) {
+        if (triggerReason != null) {
+          debugPrint('AutoAdvance calling player.play after load');
         }
-        _saveKnownTrackDurations();
+        await _player.play();
+        if (triggerReason != null) {
+          unawaited(_ensureAutoAdvancedTrackAudiblyStarts(
+            requestSerial,
+            _trackKey(activeFile),
+          ));
+        }
       }
-
-      await _player.play();
       await Future<void>.delayed(Duration.zero);
       _infameAudioHandler?.syncPlaybackStateFromPlayer();
       _syncAudioServicePlaybackState();
       _recordPlay(activeFile, coverUrl: resolvedCoverUrl);
+      if (triggerReason != null) {
+        debugPrint(
+            'AutoAdvance completed next started playing=${_player.playing}');
+      }
       debugPrint(
           'Infame playback -> index=$activeIndex/${activeQueue.length} id=$activeFileId name=${activeFile.name}');
     } catch (e, st) {
@@ -6617,26 +8188,41 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   String _trackDurationLabel(drive.File file) {
     final key = _trackKey(file);
-    if (key.isEmpty) return '';
+    if (key.isEmpty) return '--:--';
 
-    // Check persistent cache first
-    final durationMs = _knownTrackDurationsMs[key];
+    // Priority:
+    // 1) TrackMetadata duration (if present)
+    // 2) known/cache duration by stable file id
+    // 3) currently loaded player duration, but only for this exact current track
+    // 4) placeholder
+    final durationMs = _durationMsForTrack(file);
     if (durationMs != null && durationMs > 0) {
+      _setKnownTrackDuration(key, durationMs);
       return _formatDurationMs(durationMs);
     }
 
-    // Fall back to in-memory cache
-    final duration = _knownTrackDurations[key];
-    if (duration == null || duration.inSeconds <= 0) return '';
-    return _formatDurationLabel(duration);
+    final current = _nowPlaying.track ?? _nowPlaying.currentTrack;
+    final currentKey = current == null ? '' : _trackKey(current);
+    if (currentKey == key) {
+      final liveDurationMs =
+          _validDurationMsFromValue(_player.duration?.inMilliseconds);
+      if (liveDurationMs != null) {
+        _setKnownTrackDuration(key, liveDurationMs);
+        return _formatDurationLabel(Duration(milliseconds: liveDurationMs));
+      }
+    }
+
+    return '--:--';
   }
 
   void _addTracksPlayNext(List<drive.File> tracks) {
+    debugPrint('Queue playNext inserted=${tracks.length}');
     _enqueueTracks(tracks, insertAfterCurrent: true);
   }
 
   void _addTracksToQueueEnd(List<drive.File> tracks) {
-    _enqueueTracks(tracks, insertAfterCurrent: true);
+    debugPrint('Queue addToQueue appended=${tracks.length}');
+    _enqueueTracks(tracks, insertAfterCurrent: false);
   }
 
   void _enqueueTracks(List<drive.File> tracks,
@@ -6689,9 +8275,67 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _nowPlaying.queue = updatedQueue;
     _nowPlaying.queueIndex =
         updatedQueue.indexWhere((track) => _trackKey(track) == currentKey);
+    debugPrint(
+        'Queue ${insertAfterCurrent ? 'playNext inserted' : 'addToQueue appended'}=${uniqueTracks.length} index=${_nowPlaying.queueIndex} length=${updatedQueue.length}');
     _nowPlaying.refresh();
     if (mounted) setState(() {});
     _showSuccess(insertAfterCurrent ? 'Added next' : 'Added to queue.');
+  }
+
+  Future<void> _playQueueIndex(int index) async {
+    final current = _nowPlaying.track;
+    if (current == null) return;
+    final queue = _cleanPlaybackQueue(_nowPlaying.queue, current);
+    if (index < 0 || index >= queue.length) return;
+    final track = queue[index];
+    debugPrint('Queue play index=$index');
+    await _playSong(
+      track,
+      queue: queue,
+      idx: index,
+      coverUrl: _resolveCurrentTrackCover(
+        track,
+        queue: queue,
+        idx: index,
+        fallbackCoverUrl: _nowPlaying.currentCoverUrl,
+      ),
+      colors: _nowPlaying.dynamicColors,
+    );
+  }
+
+  void _removeQueueItemAt(int index) {
+    final current = _nowPlaying.track;
+    if (current == null) return;
+    final currentKey = _trackKey(current);
+    final queue = _cleanPlaybackQueue(_nowPlaying.queue, current);
+    if (index < 0 || index >= queue.length) return;
+    if (_trackKey(queue[index]) == currentKey) return;
+    queue.removeAt(index);
+    final nextCurrentIndex =
+        queue.indexWhere((track) => _trackKey(track) == currentKey);
+    _nowPlaying.queue = queue;
+    _nowPlaying.queueIndex = nextCurrentIndex < 0 ? 0 : nextCurrentIndex;
+    _nowPlaying.refresh();
+    if (mounted) setState(() {});
+  }
+
+  void _clearUpcomingQueue() {
+    final current = _nowPlaying.track;
+    if (current == null) return;
+    final currentKey = _trackKey(current);
+    final queue = _cleanPlaybackQueue(_nowPlaying.queue, current);
+    final currentIndex =
+        queue.indexWhere((track) => _trackKey(track) == currentKey);
+    if (currentIndex < 0) return;
+    final removed = queue.length - currentIndex - 1;
+    if (removed <= 0) return;
+    queue.removeRange(currentIndex + 1, queue.length);
+    _nowPlaying.queue = queue;
+    _nowPlaying.queueIndex = currentIndex;
+    _nowPlaying.refresh();
+    debugPrint('Queue clear upcoming count=$removed');
+    if (mounted) setState(() {});
+    _showSuccess('Cleared upcoming queue.');
   }
 
   void _showError(String msg) {
@@ -6780,6 +8424,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     physics: const BouncingScrollPhysics(),
                     itemCount: 3,
                     onPageChanged: (index) {
+                      debugPrint('PageView onPageChanged index=$index');
                       setState(() {
                         _navIndex = index;
                         _viewingAlbum = null;
@@ -6809,41 +8454,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       }
                     },
                   ),
-          ),
-          ListenableBuilder(
-            listenable: _nowPlaying,
-            builder: (context, _) {
-              final hasCurrentTrack = _nowPlaying.track != null;
-              if (!hasCurrentTrack || _navIndex == 1) {
-                return const SizedBox.shrink();
-              }
-              return Positioned(
-                bottom: 88 + safeBottom,
-                left: 16,
-                right: 16,
-                child: _PlayerFloatingBar(
-                  player: _player,
-                  onNext: () => _playNext(),
-                  onPrev: () => _playPrev(),
-                  onOpenNowPlaying: () => _selectRootTab(1),
-                  onPlayFromQueue: (track, index) => _playSong(
-                    track,
-                    queue: _nowPlaying.queue,
-                    idx: index,
-                    coverUrl: _resolveCurrentTrackCover(
-                      track,
-                      queue: _nowPlaying.queue,
-                      idx: index,
-                      fallbackCoverUrl: _nowPlaying.currentCoverUrl,
-                    ),
-                    colors: _currentDynamicColors,
-                  ),
-                  isDarkMode: _isDarkMode,
-                  knownTrackDurationsMs: _knownTrackDurationsMs,
-                  knownTrackDurations: _knownTrackDurations,
-                ),
-              );
-            },
           ),
           Positioned(
             bottom: 18 + safeBottom,
@@ -6917,6 +8527,32 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ),
             ),
           ),
+          ListenableBuilder(
+            listenable: _nowPlaying,
+            builder: (context, _) {
+              final hasCurrentTrack = _nowPlaying.hasCurrentTrack;
+              final shouldShowMiniPlayer = hasCurrentTrack && _navIndex != 1;
+              if (!shouldShowMiniPlayer) {
+                return const SizedBox.shrink();
+              }
+              return Positioned(
+                bottom: 88 + safeBottom,
+                left: 16,
+                right: 16,
+                child: _PlayerFloatingBar(
+                  player: _player,
+                  onNext: () => _playNext(),
+                  onPrev: () => _playPrev(),
+                  onOpenNowPlaying: () => _selectRootTab(1),
+                  resolveMiniPlayerTrack: _resolveMiniPlayerTrack,
+                  onPlayFromQueue: (track, index) => _playQueueIndex(index),
+                  isDarkMode: _isDarkMode,
+                  knownTrackDurationsMs: _knownTrackDurationsMs,
+                  knownTrackDurations: _knownTrackDurations,
+                ),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -6988,15 +8624,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   // ── Album View ────────────────────────────────────────────────────────────
   Widget _buildAlbumView() {
-    final albumId = _viewingAlbum!['id'] ?? '';
+    final album = _resolvedAlbumMap(_viewingAlbum!);
+    final albumId = album['id'] ?? '';
     final brain = _libraryBrain[albumId] ?? <String, String>{};
-    final rawName = _viewingAlbum!['name'] ?? 'Unknown Album';
-    final albumName =
-        brain['displayName'] ?? _viewingAlbum!['displayName'] ?? rawName;
-    final artist = brain['artist'] ?? _viewingAlbum!['artist'] ?? '';
-    final year = brain['year'] ?? _viewingAlbum!['year'] ?? '';
-    final genre = brain['genre'] ?? _viewingAlbum!['genre'] ?? '';
-    final coverUrl = _viewingAlbum!['cover'] ?? brain['cover'] ?? '';
+    final albumName = album['displayName'] ?? album['name'] ?? 'Unknown Album';
+    final artist = album['artist'] ?? '';
+    final year = brain['year'] ?? album['year'] ?? '';
+    final genre = brain['genre'] ?? album['genre'] ?? '';
+    final coverUrl = album['cover'] ?? brain['cover'] ?? '';
     final colors = _safeColors(_currentDynamicColors);
     final glowColor = _isDarkMode ? _neonPurple : _neonMagenta;
     final fallbackGradient = getAlbumGradient(albumName);
@@ -7445,18 +9080,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           player: _player,
           onNext: () => _playNext(),
           onPrev: () => _playPrev(),
-          onPlayFromQueue: (queueTrack, index) => _playSong(
-            queueTrack,
-            queue: _nowPlaying.queue,
-            idx: index,
-            coverUrl: _resolveCurrentTrackCover(
-              queueTrack,
-              queue: _nowPlaying.queue,
-              idx: index,
-              fallbackCoverUrl: _nowPlaying.currentCoverUrl,
-            ),
-            colors: _currentDynamicColors,
-          ),
+          onPlayFromQueue: (queueTrack, index) => _playQueueIndex(index),
+          onRemoveQueueItemAt: _removeQueueItemAt,
+          onClearUpcomingQueue: _clearUpcomingQueue,
           isDarkMode: _isDarkMode,
           albumName: albumName,
           isLiked: _isTrackLiked(track),
@@ -7664,23 +9290,25 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       }
 
                       final artistAlbums = _albums.where((album) {
+                        final resolved = _resolvedAlbumMap(album);
                         final albumArtist = _canonicalArtistName(
-                          albumArtist: _libraryAlbumArtist(album),
-                          trackArtist: _libraryBrain[album['id'] ?? '']
+                          albumArtist: _libraryAlbumArtist(resolved),
+                          trackArtist: _libraryBrain[resolved['id'] ?? '']
                                   ?['artist'] ??
-                              album['artist'] ??
+                              resolved['artist'] ??
                               '',
                           albumName:
-                              album['name'] ?? album['displayName'] ?? '',
+                              resolved['name'] ?? resolved['displayName'] ?? '',
                         );
                         return albumArtist.toLowerCase() ==
                             artist.toLowerCase();
                       }).map((album) {
-                        final merged = Map<String, String>.from(album);
-                        final brain = _libraryBrain[album['id'] ?? ''];
+                        final resolved = _resolvedAlbumMap(album);
+                        final merged = Map<String, String>.from(resolved);
+                        final brain = _libraryBrain[resolved['id'] ?? ''];
                         if (brain != null) merged.addAll(brain);
-                        merged['artist'] = _libraryAlbumArtist(album);
-                        merged['displayName'] = _libraryAlbumTitle(album);
+                        merged['artist'] = _libraryAlbumArtist(resolved);
+                        merged['displayName'] = _libraryAlbumTitle(resolved);
                         return merged;
                       }).toList();
 
@@ -7781,8 +9409,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                   sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate((ctx, i) {
-                      final album = albums[i];
+                  delegate: SliverChildBuilderDelegate((ctx, i) {
+                      final album = _resolvedAlbumMap(albums[i]);
                       final brain = _libraryBrain[album['id'] ?? ''];
                       final name = _libraryAlbumTitle(album);
                       final artist = _libraryAlbumArtist(album);
