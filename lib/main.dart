@@ -38,6 +38,7 @@ part 'screens/library_tab.dart';
 part 'screens/drive_tab.dart';
 part 'widgets/library_widgets.dart';
 part 'widgets/player_widgets.dart';
+part 'widgets/settings_widgets.dart';
 
 const bool kVerbosePlaybackLogs = false;
 const bool kVerboseUiLogs = false;
@@ -689,8 +690,8 @@ String _albumCacheKey(dynamic albumOrTrack, {String source = 'unknown'}) {
   String key = '';
 
   if (albumOrTrack is drive.File) {
-    raw = (DriveUtils.effectiveId(albumOrTrack) ?? albumOrTrack.id ?? '')
-        .trim();
+    raw =
+        (DriveUtils.effectiveId(albumOrTrack) ?? albumOrTrack.id ?? '').trim();
     key = raw;
   } else if (albumOrTrack is TrackMetadata) {
     raw = _firstNonEmptyString([
@@ -725,10 +726,8 @@ String _albumCacheKey(dynamic albumOrTrack, {String source = 'unknown'}) {
         map['artist'],
         map['albumArtist'],
       ]);
-      final fallback = [artist, title]
-          .where((value) => value.isNotEmpty)
-          .join('::')
-          .trim();
+      final fallback =
+          [artist, title].where((value) => value.isNotEmpty).join('::').trim();
       key = _normalizeAlbumKeySegment(fallback);
     }
   } else if (albumOrTrack is String) {
@@ -2059,7 +2058,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (trackId.isEmpty) return null;
 
     final fromMetadata = _durationMsFromTrackMetadata(file);
-    final fromKnown = _validDurationMsFromValue(_knownTrackDurationsMs[trackId]);
+    final fromKnown =
+        _validDurationMsFromValue(_knownTrackDurationsMs[trackId]);
     final fromIndex =
         _validDurationMsFromValue(_libraryTrackIndex[trackId]?['durationMs']);
 
@@ -2103,8 +2103,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final artistText = _cleanBrainValue(artist).toLowerCase();
     if (artistText.isNotEmpty) {
-      final normalizedTitle = lower.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
-      final normalizedArtist = artistText.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+      final normalizedTitle =
+          lower.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+      final normalizedArtist =
+          artistText.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
       if (normalizedTitle == normalizedArtist ||
           normalizedTitle == '$normalizedArtist album') {
         return true;
@@ -2115,14 +2117,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   List<Map<String, String>> _trackRecordsForAlbumKey(String albumKey) {
-    final normalizedKey = _albumCacheKey(albumKey, source: 'album_track_records');
+    final normalizedKey =
+        _albumCacheKey(albumKey, source: 'album_track_records');
     if (normalizedKey.isEmpty) return const <Map<String, String>>[];
     return _libraryTrackIndex.values
         .where((record) {
           final id = (record['albumId'] ?? record['albumKey'] ?? '').trim();
           if (id.isEmpty) return false;
           return id == normalizedKey ||
-              _albumCacheKey(id, source: 'album_track_record_id') == normalizedKey;
+              _albumCacheKey(id, source: 'album_track_record_id') ==
+                  normalizedKey;
         })
         .map((record) => Map<String, String>.from(record))
         .toList(growable: false);
@@ -2158,7 +2162,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }) {
     return _mostCommonCleanValue(
       records.map((record) => record['album']),
-      accept: (value) => !_isWeakAlbumDisplayTitle(value, artist: fallbackArtist),
+      accept: (value) =>
+          !_isWeakAlbumDisplayTitle(value, artist: fallbackArtist),
     );
   }
 
@@ -2217,7 +2222,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final folderFallback = _cleanBackgroundValue(
       album['name'] ?? album['displayName'] ?? album['album'] ?? album['title'],
     );
-    final value = _firstNonEmptyString([metadataTitle, savedTitle, folderFallback]);
+    final value =
+        _firstNonEmptyString([metadataTitle, savedTitle, folderFallback]);
     final titleSource = metadataTitle.isNotEmpty
         ? 'metadata'
         : savedTitle.isNotEmpty
@@ -2227,7 +2233,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 : 'none';
     final logKey = 'title|$key|$value|$titleSource';
     if (_albumDisplayLogSeen.add(logKey)) {
-      debugPrint('AlbumDisplay resolved key=$key title="$value" artist="$artistHint" titleSource=$titleSource');
+      debugPrint(
+          'AlbumDisplay resolved key=$key title="$value" artist="$artistHint" titleSource=$titleSource');
     }
     return value.isNotEmpty ? value : 'Album';
   }
@@ -2248,7 +2255,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _cleanBrainValue(brain?['artist']),
       if (!_isBadArtistName(_cleanBrainValue(album['artist'])))
         _cleanBrainValue(album['artist']),
-      if (!_isBadArtistName(_artistAlbumFromFolder(album['name'] ?? '')['artist'] ?? ''))
+      if (!_isBadArtistName(
+          _artistAlbumFromFolder(album['name'] ?? '')['artist'] ?? ''))
         _artistAlbumFromFolder(album['name'] ?? '')['artist'] ?? '',
     ]);
 
@@ -2260,7 +2268,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             : 'none';
     final logKey = 'artist|$key|$value|$artistSource';
     if (_albumDisplayLogSeen.add(logKey)) {
-      debugPrint('AlbumDisplay resolved key=$key artist="$value" artistSource=$artistSource');
+      debugPrint(
+          'AlbumDisplay resolved key=$key artist="$value" artistSource=$artistSource');
     }
     return value.isNotEmpty ? value : 'Unknown Artist';
   }
@@ -2523,7 +2532,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _queueAlbumCoverFromMetadataScan(String albumId, String coverPath) {
-    final normalizedId = _albumCacheKey(albumId, source: 'metadata_cover_found');
+    final normalizedId =
+        _albumCacheKey(albumId, source: 'metadata_cover_found');
     if (normalizedId.trim().isEmpty || coverPath.trim().isEmpty) return;
     _pendingAlbumCoverUpdates[normalizedId] = coverPath;
     _pendingAlbumCoverFlushTimer ??=
@@ -3120,39 +3130,45 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   void _rebuildBrainWithCorrectParsing() {
     // Fix any albums that have swapped artist/album from old folder parsing
-    debugPrint('[BrainFix] Checking for swapped metadata in ${_libraryBrain.length} albums');
+    debugPrint(
+        '[BrainFix] Checking for swapped metadata in ${_libraryBrain.length} albums');
     int fixed = 0;
-    
+
     for (final entry in _libraryBrain.entries.toList()) {
       final id = entry.key;
       final brain = entry.value;
       final name = brain['name'] ?? '';
-      
+
       // Re-parse folder name with correct logic
       final folderGuess = _artistAlbumFromFolder(name);
       if (folderGuess.isEmpty) continue;
-      
+
       final currentDisplayName = brain['displayName'] ?? '';
       final currentArtist = brain['artist'] ?? '';
       final guessedAlbum = folderGuess['album'] ?? '';
       final guessedArtist = folderGuess['artist'] ?? '';
-      
+
       // Check if metadata looks swapped (album name matches artist field, artist name matches displayName field)
-      if (currentDisplayName.isNotEmpty && currentArtist.isNotEmpty &&
-          guessedAlbum.isNotEmpty && guessedArtist.isNotEmpty) {
+      if (currentDisplayName.isNotEmpty &&
+          currentArtist.isNotEmpty &&
+          guessedAlbum.isNotEmpty &&
+          guessedArtist.isNotEmpty) {
         // If current displayName looks like an artist and current artist looks like an album
-        if (currentDisplayName.toLowerCase().contains(guessedArtist.toLowerCase()) &&
+        if (currentDisplayName
+                .toLowerCase()
+                .contains(guessedArtist.toLowerCase()) &&
             currentArtist.toLowerCase().contains(guessedAlbum.toLowerCase())) {
           // Swap them
           brain['displayName'] = guessedAlbum;
           brain['artist'] = guessedArtist;
           _libraryBrain[id] = brain;
           fixed++;
-          debugPrint('[BrainFix] Fixed $id: "$currentDisplayName" by "$currentArtist" → "$guessedAlbum" by "$guessedArtist"');
+          debugPrint(
+              '[BrainFix] Fixed $id: "$currentDisplayName" by "$currentArtist" → "$guessedAlbum" by "$guessedArtist"');
         }
       }
     }
-    
+
     if (fixed > 0) {
       debugPrint('[BrainFix] Fixed $fixed albums with swapped metadata');
       _saveLibraryBrain();
@@ -3168,7 +3184,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         final recent = _recentBrainAlbums(limit: 14);
         final played = _lastPlayedAlbums(limit: 10);
         final primaryAlbums = played.isNotEmpty ? played : recent;
-        
+
         // Resolve a few albums at a time to avoid blocking
         for (final album in primaryAlbums.take(5)) {
           _resolvedAlbumMap(album);
@@ -3295,7 +3311,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
     final displayName = commonAlbum.isNotEmpty
         ? commonAlbum
-        : (!_isWeakAlbumDisplayTitle(existing['displayName'], artist: commonArtist)
+        : (!_isWeakAlbumDisplayTitle(existing['displayName'],
+                artist: commonArtist)
             ? existing['displayName']!
             : (folderGuess['album'] ?? folderName));
     final artist = _canonicalArtistName(
@@ -3351,7 +3368,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final albumId = currentAlbum == null
         ? ''
         : _albumCacheKey(currentAlbum, source: 'record_play');
-    final albumName = currentAlbum == null ? '' : _resolvedAlbumTitle(currentAlbum);
+    final albumName =
+        currentAlbum == null ? '' : _resolvedAlbumTitle(currentAlbum);
     final now = DateTime.now().millisecondsSinceEpoch.toString();
 
     _playHistory.removeWhere((item) => item['fileId'] == fileId);
@@ -3400,8 +3418,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final items = _albums
         .map((album) {
           final key = _albumCacheKey(album, source: 'brain_album');
-          final brain =
-              Map<String, String>.from(_libraryBrain[key] ?? <String, String>{});
+          final brain = Map<String, String>.from(
+              _libraryBrain[key] ?? <String, String>{});
           final resolved = _resolvedAlbumMap({
             ...album,
             'id': key,
@@ -3409,7 +3427,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ...brain,
           });
           resolved['albumId'] = key;
-          resolved['dateAdded'] = album['dateAdded'] ?? brain['dateAdded'] ?? '0';
+          resolved['dateAdded'] =
+              album['dateAdded'] ?? brain['dateAdded'] ?? '0';
           return resolved;
         })
         .where((item) => (item['albumId'] ?? '').isNotEmpty)
@@ -3681,9 +3700,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     if (data['type'] == 'album_cover_found') {
-      final albumId = data['albumKey']?.toString() ??
-          data['albumId']?.toString() ??
-          '';
+      final albumId =
+          data['albumKey']?.toString() ?? data['albumId']?.toString() ?? '';
       final coverPath = data['coverPath']?.toString() ?? '';
       _queueAlbumCoverFromMetadataScan(albumId, coverPath);
       return;
@@ -3873,497 +3891,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     unawaited(_fetchExplore(folderId: 'root'));
   }
 
-  void _openSettingsSheet() {
-    final colors = _safeColors(_currentDynamicColors);
+  void _openSettingsSheet() => _openSettingsSheetFromPart();
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withOpacity(0.70),
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
-            _settingsSheetSetState = setSheetState;
-            final accent = _appAccent;
-            final accountName = (_user?.displayName ?? '').trim();
-            final accountEmail = (_user?.email ?? '').trim();
-            final driveAccountLabel = accountName.isNotEmpty
-                ? accountName
-                : (accountEmail.isNotEmpty ? accountEmail : 'Not connected');
-            final driveFolderLabel =
-                _exploreFolder?.name?.trim().isNotEmpty == true
-                    ? _exploreFolder!.name!.trim()
-                    : (_albums.isNotEmpty
-                        ? (_albums.first['name'] ?? 'Not selected')
-                        : 'Not selected');
-            final driveStatusLabel = _loadingExplore
-                ? 'Loading folders...'
-                : (_driveExplorerLoadError?.trim().isNotEmpty == true
-                    ? 'Error loading folders'
-                    : '${_exploreItems.length} items loaded');
-
-            final progress = _metadataTotal > 0
-                ? (_metadataDone / _metadataTotal).clamp(0.0, 1.0)
-                : null;
-
-            return BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 34, sigmaY: 34),
-              child: Container(
-                height: MediaQuery.of(sheetContext).size.height * 0.88,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.zero,
-                  border: Border(
-                      top: BorderSide(
-                          color: _isDarkMode
-                              ? Colors.white.withOpacity(0.12)
-                              : Colors.black.withOpacity(0.08))),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: _isDarkMode
-                        ? [
-                            colors[0].withOpacity(0.22),
-                            _bg.withOpacity(0.98),
-                            Colors.black,
-                          ]
-                        : [
-                            _lightGlassBase.withOpacity(0.92),
-                            _lightBg.withOpacity(0.98),
-                            _lightBg,
-                          ],
-                  ),
-                ),
-                child: SafeArea(
-                  top: false,
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              onPressed: () => Navigator.pop(sheetContext),
-                              icon: const Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  size: 34),
-                            ),
-                            const Spacer(),
-                            Text(
-                              'Settings',
-                              style: GoogleFonts.inter(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w900,
-                                color: _isDarkMode ? _textPri : _lightText,
-                              ),
-                            ),
-                            const Spacer(),
-                            const SizedBox(width: 48),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: ListView(
-                          physics: const BouncingScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(22, 10, 22, 28),
-                          children: [
-                            Text(
-                              'Settings',
-                              style: GoogleFonts.inter(
-                                color: _isDarkMode ? _textPri : _lightTextPri,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Appearance, music library, performance and Drive controls.',
-                              style: GoogleFonts.inter(
-                                color: _isDarkMode ? _textSub : _lightSubtext,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                height: 1.45,
-                              ),
-                            ),
-                            const SizedBox(height: 22),
-                            GlassyContainer(
-                              radius: 24,
-                              padding: const EdgeInsets.all(16),
-                              customColor: _isDarkMode
-                                  ? Colors.white.withOpacity(0.075)
-                                  : _lightGlassBase.withOpacity(0.78),
-                              customBorder: _isDarkMode
-                                  ? accent.withOpacity(0.22)
-                                  : Colors.black.withOpacity(0.08),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _isDarkMode
-                                        ? Icons.dark_mode_rounded
-                                        : Icons.light_mode_rounded,
-                                    color: accent,
-                                    size: 22,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      _isDarkMode ? 'Dark Mode' : 'Light Mode',
-                                      style: GoogleFonts.inter(
-                                        color:
-                                            _isDarkMode ? _textPri : _lightText,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w900,
-                                        height: 1.35,
-                                      ),
-                                    ),
-                                  ),
-                                  Switch(
-                                    value: _isDarkMode,
-                                    onChanged: (value) {
-                                      setState(() => _isDarkMode = value);
-                                      setSheetState(() {});
-                                      _saveUiPreferences();
-                                    },
-                                    activeColor: accent,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            GlassyContainer(
-                              radius: 24,
-                              padding: const EdgeInsets.all(16),
-                              customColor: _isDarkMode
-                                  ? Colors.white.withOpacity(0.075)
-                                  : _lightGlassBase.withOpacity(0.78),
-                              customBorder: _isDarkMode
-                                  ? accent.withOpacity(0.22)
-                                  : Colors.black.withOpacity(0.08),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        _loadingMetadata
-                                            ? Icons.sync_rounded
-                                            : Icons.library_music_rounded,
-                                        color: accent,
-                                        size: 22,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          _metadataStatusLabel(),
-                                          style: GoogleFonts.inter(
-                                            color: _isDarkMode
-                                                ? _textPri
-                                                : _lightText,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w900,
-                                            height: 1.35,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 14),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: LinearProgressIndicator(
-                                      value: progress,
-                                      minHeight: 6,
-                                      backgroundColor: _isDarkMode
-                                          ? Colors.white.withOpacity(0.14)
-                                          : Colors.black.withOpacity(0.08),
-                                      valueColor:
-                                          AlwaysStoppedAnimation<Color>(accent),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 14),
-                                  Row(
-                                    children: [
-                                      _MetadataStat(
-                                          label: 'Fast', value: _metadataFast),
-                                      _MetadataStat(
-                                          label: 'Deep',
-                                          value: _metadataDeep,
-                                          isDarkMode: _isDarkMode),
-                                      _MetadataStat(
-                                          label: 'Failed',
-                                          value: _metadataFailed,
-                                          isDarkMode: _isDarkMode),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            _SettingsPrimaryButton(
-                              label: _loadingMetadata
-                                  ? 'Cancel metadata scan'
-                                  : 'Scan metadata',
-                              icon: _loadingMetadata
-                                  ? Icons.stop_rounded
-                                  : Icons.sync_rounded,
-                              accent: accent,
-                              destructive: _loadingMetadata,
-                              isDarkMode: _isDarkMode,
-                              onTap: () {
-                                if (_loadingMetadata) {
-                                  _cancelForegroundMetadataScan();
-                                } else {
-                                  _startForegroundLibraryMetadataScan();
-                                }
-                                setSheetState(() {});
-                              },
-                            ),
-                            const SizedBox(height: 24),
-                            _SettingsSectionTitle(
-                                title: 'Account / Google Drive',
-                                isDarkMode: _isDarkMode),
-                            _SettingsInfoCard(
-                              icon: Icons.account_circle_rounded,
-                              title: driveAccountLabel,
-                              subtitle:
-                                  'Folder: $driveFolderLabel • $driveStatusLabel',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                            ),
-                            const SizedBox(height: 10),
-                            _SettingsActionRow(
-                              icon: Icons.storage_rounded,
-                              title: 'Change Drive folder',
-                              subtitle:
-                                  'Open Drive folders and choose your music source.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: () {
-                                Navigator.pop(sheetContext);
-                                WidgetsBinding.instance
-                                    .addPostFrameCallback((_) {
-                                  if (mounted) _openDriveSourcePage();
-                                });
-                              },
-                            ),
-                            _SettingsActionRow(
-                              icon: Icons.refresh_rounded,
-                              title: 'Rescan library',
-                              subtitle: _exploreFolder == null
-                                  ? 'Select a Drive folder, then scan it into your library.'
-                                  : 'Scan "$driveFolderLabel" into your library.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: _exploreFolder == null || _isScanning
-                                  ? null
-                                  : () => _scanFolderToLibrary(_exploreFolder!),
-                            ),
-                            const SizedBox(height: 18),
-                            _SettingsSectionTitle(
-                                title: 'Library', isDarkMode: _isDarkMode),
-                            _SettingsInfoCard(
-                              icon: Icons.album_rounded,
-                              title: '${_albums.length} albums saved',
-                              subtitle:
-                                  '${_metaStore.count} cached song metadata entries',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                            ),
-                            _SettingsActionRow(
-                              icon: Icons.restore_rounded,
-                              title: 'Restore previous library',
-                              subtitle:
-                                  'Recover the backup saved before clearing the app library.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: _restoreLibraryBackup,
-                            ),
-                            _SettingsActionRow(
-                              icon: Icons.tag_rounded,
-                              title: 'Clear metadata cache',
-                              subtitle:
-                                  'Forces titles, artists and albums to be scanned again.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: _clearMetadataCacheSafely,
-                            ),
-                            _SettingsActionRow(
-                              icon: Icons.image_not_supported_rounded,
-                              title: 'Clear cached covers',
-                              subtitle:
-                                  'Removes local cover images saved by metadata scans.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: _clearCoverCacheSafely,
-                            ),
-                            _SettingsActionRow(
-                              icon: Icons.image_search_rounded,
-                              title: 'Find covers for all albums',
-                              subtitle:
-                                  'Searches embedded art and online sources for albums without covers.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: _findCoversForAllAlbums,
-                            ),
-                            const SizedBox(height: 18),
-                            _SettingsSectionTitle(
-                                title: 'Appearance', isDarkMode: _isDarkMode),
-                            _SettingsActionRow(
-                              icon: Icons.palette_rounded,
-                              title:
-                                  'Accent color: ${_accentModeLabelForMode(_accentMode)}',
-                              subtitle:
-                                  'Cycles White, Champagne, Soft Blue and Pink.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: () => _cycleAccentMode(setSheetState),
-                            ),
-                            _SettingsActionRow(
-                              icon: Icons.auto_awesome_rounded,
-                              title: 'Rebuild Smart Home index',
-                              subtitle:
-                                  'Refreshes Home sections from cached metadata and opened albums.',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: _rebuildSmartHomeIndex,
-                            ),
-                            _SettingsSwitchRow(
-                              icon: Icons.history_rounded,
-                              title: 'Continue listening',
-                              subtitle:
-                                  'Show recent albums and recent tracks on Home.',
-                              value: _homeShowContinue,
-                              accent: colors[1],
-                              isDarkMode: _isDarkMode,
-                              onChanged: (value) {
-                                setState(() => _homeShowContinue = value);
-                                setSheetState(() {});
-                                _saveUiPreferences();
-                              },
-                            ),
-                            // Hidden until genre section exists
-                            // _SettingsSwitchRow(
-                            //   icon: Icons.category_rounded,
-                            //   title: 'Genre shelves',
-                            //   subtitle: 'Show Hip-Hop, Soul, Jazz and other shelves when tags exist.',
-                            //   value: _homeShowGenres,
-                            //   accent: colors[1],
-                            //   onChanged: (value) {
-                            //     setState(() => _homeShowGenres = value);
-                            //     setSheetState(() {});
-                            //     _saveUiPreferences();
-                            //   },
-                            // ),
-                            // Hidden until decade section exists
-                            // _SettingsSwitchRow(
-                            //   icon: Icons.calendar_month_rounded,
-                            //   title: 'Decade shelves',
-                            //   subtitle: 'Show 90s, 2000s and other year-based rows when metadata exists.',
-                            //   value: _homeShowDecades,
-                            //   accent: colors[1],
-                            //   onChanged: (value) {
-                            //     setState(() => _homeShowDecades = value);
-                            //     setSheetState(() {});
-                            //     _saveUiPreferences();
-                            //   },
-                            // ),
-                            _SettingsSwitchRow(
-                              icon: Icons.person_rounded,
-                              title: 'Your Library',
-                              subtitle: 'Show your library albums on home.',
-                              value: _homeShowArtists,
-                              accent: colors[1],
-                              isDarkMode: _isDarkMode,
-                              onChanged: (value) {
-                                setState(() => _homeShowArtists = value);
-                                setSheetState(() {});
-                                _saveUiPreferences();
-                              },
-                            ),
-                            _SettingsSwitchRow(
-                              icon: Icons.casino_rounded,
-                              title: 'Discovery card',
-                              subtitle: 'Show the random-library pick card.',
-                              value: _homeShowDiscovery,
-                              accent: colors[1],
-                              isDarkMode: _isDarkMode,
-                              onChanged: (value) {
-                                setState(() => _homeShowDiscovery = value);
-                                setSheetState(() {});
-                                _saveUiPreferences();
-                              },
-                            ),
-                            const SizedBox(height: 18),
-                            _SettingsSectionTitle(
-                                title: 'Performance', isDarkMode: _isDarkMode),
-                            _SettingsActionRow(
-                              icon: Icons.tune_rounded,
-                              title: 'Performance mode',
-                              subtitle:
-                                  'Reduces expensive visuals and background work. Current: ${_glassModeLabel(_glassMode)}',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onTap: () => _cycleGlassMode(setSheetState),
-                            ),
-                            _SettingsSwitchRow(
-                              icon: Icons.gradient_rounded,
-                              title: 'Background glow',
-                              subtitle:
-                                  'Soft mesh glow without list blur. Turn off only if page swipes still feel heavy.',
-                              value: _showBackgroundGlow,
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                              onChanged: (value) {
-                                setState(() => _showBackgroundGlow = value);
-                                setSheetState(() {});
-                                _saveUiPreferences();
-                              },
-                            ),
-                            _SettingsInfoCard(
-                              icon: Icons.speed_rounded,
-                              title: 'Performance profile',
-                              subtitle: _glassModeDescription(_glassMode),
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                            ),
-                            const SizedBox(height: 18),
-                            _SettingsSectionTitle(
-                                title: 'About / Debug',
-                                isDarkMode: _isDarkMode),
-                            _SettingsInfoCard(
-                              icon: Icons.info_outline_rounded,
-                              title: 'Scan stats',
-                              subtitle:
-                                  'Fast: $_metadataFast • Deep: $_metadataDeep • Failed: $_metadataFailed',
-                              accent: accent,
-                              isDarkMode: _isDarkMode,
-                            ),
-                            _SettingsActionRow(
-                              icon: Icons.delete_outline_rounded,
-                              title: 'Clear app library cache',
-                              subtitle:
-                                  'Does not touch Google Drive files. Requires typing CLEAR.',
-                              accent: Colors.redAccent,
-                              destructive: true,
-                              isDarkMode: _isDarkMode,
-                              onTap: _clearLibraryCacheSafely,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    ).whenComplete(() {
-      _settingsSheetSetState = null;
-    });
-  }
+  void _settingsSetState(VoidCallback fn) => setState(fn);
 
   Future<void> _startForegroundLibraryMetadataScan() async {
     if (_user == null || _albums.isEmpty || _loadingMetadata) return;
@@ -4816,7 +4346,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final albumKey = albumRecord == null
         ? ''
         : _albumCacheKey(albumRecord, source: 'metadata_scan');
-    final albumTitle = albumRecord == null ? '' : _resolvedAlbumTitle(albumRecord);
+    final albumTitle =
+        albumRecord == null ? '' : _resolvedAlbumTitle(albumRecord);
     final albumArtist =
         albumRecord == null ? '' : _resolvedAlbumArtist(albumRecord);
     var metadataAppliedLogged = false;
@@ -6223,7 +5754,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
     if (_viewingAlbum != null &&
         (_albumCacheKey(_viewingAlbum!, source: 'revert_artwork_view') ==
-            albumId ||
+                albumId ||
             (_viewingAlbum!['id'] ?? '') == albumId)) {
       revert(_viewingAlbum!);
     }
@@ -6556,7 +6087,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final normalized = _resolvedAlbumMap(album);
     final albumId = normalized['id'] ?? '';
     final brain = _libraryBrain[albumId] ?? const <String, String>{};
-    final albumName = normalized['displayName'] ?? normalized['name'] ?? 'Unknown Album';
+    final albumName =
+        normalized['displayName'] ?? normalized['name'] ?? 'Unknown Album';
     final artist = normalized['artist'] ?? 'Unknown Artist';
 
     _showSuccess('Checking embedded cover first...');
@@ -7145,7 +6677,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Future<void> _openAlbum(Map<String, String> album) async {
     final normalizedAlbum = _resolvedAlbumMap(album);
     final albumId = _albumCacheKey(normalizedAlbum, source: 'open_album');
-    final albumName = normalizedAlbum['displayName'] ?? album['name'] ?? 'Unknown Album';
+    final albumName =
+        normalizedAlbum['displayName'] ?? album['name'] ?? 'Unknown Album';
     final cachedTracks = _albumTracksCache[albumId];
     final sortedCachedTracks =
         cachedTracks == null ? null : _sortTracksForAlbum(cachedTracks);
@@ -7306,7 +6839,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
       // Second pass: best-effort backfill for truly missing durations.
       if (_user == null) {
-        stillMissing = missingTracks.where((t) => _durationMsForTrack(t) == null).length;
+        stillMissing =
+            missingTracks.where((t) => _durationMsForTrack(t) == null).length;
         return;
       }
 
@@ -9409,7 +8943,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                   sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate((ctx, i) {
+                    delegate: SliverChildBuilderDelegate((ctx, i) {
                       final album = _resolvedAlbumMap(albums[i]);
                       final brain = _libraryBrain[album['id'] ?? ''];
                       final name = _libraryAlbumTitle(album);
