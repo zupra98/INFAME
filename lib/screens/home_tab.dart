@@ -29,20 +29,36 @@ extension BuildHomeTabExtension on _MainScreenState {
       );
     }
 
+    // _brainAlbums() already returns resolved albums, so no need to call _resolvedAlbumMap again
     final recent = _recentBrainAlbums(limit: 14);
     final played = _lastPlayedAlbums(limit: 10);
     final primaryAlbums = played.isNotEmpty ? played : recent;
     final allAlbums = _albums;
-    final library =
-        allAlbums.where((a) => !primaryAlbums.contains(a)).take(14).toList();
-    final explore = _shuffledExploreAlbums.isEmpty
-        ? (List<Map<String, String>>.from(allAlbums)..shuffle())
-            .take(14)
-            .toList()
-        : _shuffledExploreAlbums;
-    final heavy = primaryAlbums.isNotEmpty
-        ? primaryAlbums.take(8).toList()
-        : allAlbums.take(8).toList();
+    final library = allAlbums
+        .where((a) => !primaryAlbums.contains(a))
+        .take(14)
+        .map(_resolvedAlbumMap)
+        .toList();
+    final explore = (_shuffledExploreAlbums.isEmpty
+            ? (List<Map<String, String>>.from(allAlbums)..shuffle())
+                .take(14)
+                .toList()
+            : _shuffledExploreAlbums)
+        .map(_resolvedAlbumMap)
+        .toList();
+    final heavy = primaryAlbums.take(8).toList();
+
+    // Debug: Check first album metadata
+    if (kHomeCacheDebug && recent.isNotEmpty) {
+      final first = recent.first;
+      debugPrint(
+          '[HomeCache] First recent album: displayName="${first['displayName']}" artist="${first['artist']}" name="${first['name']}"');
+    }
+
+    if (kHomeCacheDebug) {
+      debugPrint(
+          '[HomeCache] Cache rebuilt: recent=${recent.length}, played=${played.length}, library=${library.length}, explore=${explore.length}, heavy=${heavy.length}');
+    }
 
     _cachedHomeListKey = cacheKey;
     _cachedRecentBrainAlbums = recent;
@@ -105,7 +121,7 @@ extension BuildHomeTabExtension on _MainScreenState {
                       greeting: _greeting(),
                       colors: colors,
                       onSearch: () => _selectRootTab(2),
-                      onSources: _openSettingsSheet,
+                      onSources: _openSourceChoiceSheetFromPart,
                       onSettings: _openSettingsSheet,
                       isDarkMode: _isDarkMode,
                     ),
@@ -131,7 +147,8 @@ extension BuildHomeTabExtension on _MainScreenState {
                   )
                 else if (_albums.isEmpty)
                   SliverFillRemaining(
-                    child: _HomeEmptyState(onSources: _openSettingsSheet),
+                    child: _HomeEmptyState(
+                        onSources: _openSourceChoiceSheetFromPart),
                   )
                 else ...[
                   // Recently Played row
@@ -259,7 +276,7 @@ extension BuildHomeTabExtension on _MainScreenState {
       ),
     ));
     assert(() {
-      debugPrint('Home build: ${stopwatch.elapsedMicroseconds}us');
+      _verboseUiLog('Home build: ${stopwatch.elapsedMicroseconds}us');
       return true;
     }());
     return page;
@@ -452,7 +469,7 @@ class _HomeEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'Connect a Google Drive source to start',
+              'Choose Google Drive or import local files to start',
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 color: Colors.white.withOpacity(0.5),
@@ -473,7 +490,7 @@ class _HomeEmptyState extends StatelessWidget {
                 ),
               ),
               child: Text(
-                'Add Source',
+                'Choose source',
                 style: GoogleFonts.inter(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -730,11 +747,14 @@ class _HomeAlbumRow extends StatelessWidget {
           return Padding(
             padding:
                 EdgeInsets.only(right: index == albums.length - 1 ? 0 : 12),
-            child: _HomeAlbumCard(
-              key: ValueKey(album['id'] ?? album['name']),
-              info: album,
-              onTap: () => onTap(album),
-              isDarkMode: isDarkMode,
+            child: FadeSlideIn(
+              key: ValueKey('home-row-${album['id'] ?? album['name']}'),
+              child: _HomeAlbumCard(
+                key: ValueKey(album['id'] ?? album['name']),
+                info: album,
+                onTap: () => onTap(album),
+                isDarkMode: isDarkMode,
+              ),
             ),
           );
         },
@@ -801,57 +821,57 @@ class _JumpBackInCard extends StatelessWidget {
     final cover = item['cover'] ?? '';
     final gradient = getAlbumGradient(title);
 
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap();
-      },
-      child: SizedBox(
-        width: 140,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                Container(
-                  width: 140,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(kArtworkRadius),
-                    gradient: LinearGradient(colors: gradient),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: cover.isNotEmpty
-                      ? _coverImage(
-                          cover,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+    return FadeSlideIn(
+      key: ValueKey('jump-${item['title'] ?? 'track'}'),
+      child: PressableScale(
+        onTap: onTap,
+        child: SizedBox(
+          width: 140,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                children: [
+                  Container(
+                    width: 140,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(kArtworkRadius),
+                      gradient: LinearGradient(colors: gradient),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: cover.isNotEmpty
+                        ? _coverImage(
+                            cover,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => _AlbumFallbackCover(
+                              name: title,
+                              colors: gradient,
+                              radius: kArtworkRadius,
+                              small: true,
+                            ),
+                          )
+                        : _AlbumFallbackCover(
                             name: title,
                             colors: gradient,
                             radius: kArtworkRadius,
-                            small: true,
-                          ),
-                        )
-                      : _AlbumFallbackCover(
-                          name: title,
-                          colors: gradient,
-                          radius: kArtworkRadius,
-                          small: true),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(
-                color: _neonMagenta,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+                            small: true),
+                  ),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 10),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  color: _neonMagenta,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -52,7 +52,7 @@ class GlassyContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Padding(
       padding: margin,
       child: ValueListenableBuilder<String>(
@@ -64,15 +64,25 @@ class GlassyContainer extends StatelessWidget {
 
           final effectiveColor = customColor ??
               (mode == glassModePerformance
-                  ? (isDarkMode ? Colors.white.withOpacity(0.055) : _lightSurface.withOpacity(0.55))
-                  : (isDarkMode ? Colors.white.withOpacity(0.075) : _lightSurface.withOpacity(0.72)));
+                  ? (isDarkMode
+                      ? Colors.white.withOpacity(0.055)
+                      : _lightSurface.withOpacity(0.55))
+                  : (isDarkMode
+                      ? Colors.white.withOpacity(0.075)
+                      : _lightSurface.withOpacity(0.72)));
 
           final effectiveBorder = customBorder ??
               (mode == glassModePretty
-                  ? (isDarkMode ? Colors.white.withOpacity(0.18) : _lightAccentPink.withOpacity(0.22))
-                  : (isDarkMode ? glassBorder : _lightAccentPink.withOpacity(0.18)));
+                  ? (isDarkMode
+                      ? Colors.white.withOpacity(0.18)
+                      : _lightAccentPink.withOpacity(0.22))
+                  : (isDarkMode
+                      ? glassBorder
+                      : _lightAccentPink.withOpacity(0.18)));
 
-          final shadowColor = isDarkMode ? Colors.black.withOpacity(0.16) : _lightAccentPink.withOpacity(0.12);
+          final shadowColor = isDarkMode
+              ? Colors.black.withOpacity(0.16)
+              : _lightAccentPink.withOpacity(0.12);
 
           final decorated = Container(
             padding: padding,

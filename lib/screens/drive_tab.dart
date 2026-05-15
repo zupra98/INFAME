@@ -2,10 +2,11 @@ part of '../main.dart';
 
 extension BuildDriveTabExtension on _MainScreenState {
   Widget buildDriveTab() {
-    debugPrint('DriveSettings render folder count = ${_exploreItems.length}');
+    _verboseUiLog(
+        'DriveSettings render folder count = ${_exploreItems.length}');
     final folders = _exploreItems.where((f) => DriveUtils.isFolder(f)).toList();
     final tracks = _exploreItems.where((f) => DriveUtils.isAudio(f)).toList();
-    debugPrint(
+    _verboseUiLog(
         'DriveSettings using loaded folder list count = ${folders.length}');
     final colors = _safeColors(_currentDynamicColors);
     final bgColor = _isDarkMode ? _darkBg : _lightBg;

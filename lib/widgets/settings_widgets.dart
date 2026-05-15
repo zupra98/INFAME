@@ -289,6 +289,78 @@ extension _SettingsWidgetsExtension on _MainScreenState {
                                   ? null
                                   : () => _scanFolderToLibrary(_exploreFolder!),
                             ),
+                            _SettingsActionRow(
+                              icon: Icons.audio_file_rounded,
+                              title: 'Import local audio files',
+                              subtitle:
+                                  'Pick individual FLAC, MP3, WAV, OPUS, OGG or M4A files.',
+                              accent: accent,
+                              isDarkMode: _isDarkMode,
+                              onTap: _isScanning || _loadingMetadata
+                                  ? null
+                                  : () {
+                                      Navigator.pop(sheetContext);
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                        if (mounted) _importLocalAudioFiles();
+                                      });
+                                    },
+                            ),
+                            _SettingsActionRow(
+                              icon: Icons.folder_open_rounded,
+                              title: 'Add local music folder',
+                              subtitle: _selectedLocalFolders.isEmpty
+                                  ? 'Choose a folder and Infame will scan it for audio.'
+                                  : '${_selectedLocalFolders.length} local folder${_selectedLocalFolders.length == 1 ? '' : 's'} selected.',
+                              accent: accent,
+                              isDarkMode: _isDarkMode,
+                              onTap: _isScanning || _loadingMetadata
+                                  ? null
+                                  : () {
+                                      Navigator.pop(sheetContext);
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                        if (mounted) _pickLocalMusicFolder();
+                                      });
+                                    },
+                            ),
+                            _SettingsActionRow(
+                              icon: Icons.sync_rounded,
+                              title: 'Rescan local folders',
+                              subtitle: _selectedLocalFolders.isEmpty
+                                  ? 'Add a local music folder first.'
+                                  : 'Find new/changed songs in selected local folders.',
+                              accent: accent,
+                              isDarkMode: _isDarkMode,
+                              onTap: _selectedLocalFolders.isEmpty ||
+                                      _isScanning ||
+                                      _loadingMetadata
+                                  ? null
+                                  : () {
+                                      Navigator.pop(sheetContext);
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                        if (mounted) _rescanLocalMusicFolders();
+                                      });
+                                    },
+                            ),
+                            _SettingsActionRow(
+                              icon: Icons.cleaning_services_rounded,
+                              title: 'Remove missing local files',
+                              subtitle:
+                                  'Clean songs whose local files were moved or deleted.',
+                              accent: accent,
+                              isDarkMode: _isDarkMode,
+                              onTap: _isScanning || _loadingMetadata
+                                  ? null
+                                  : () {
+                                      Navigator.pop(sheetContext);
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                        if (mounted) _removeMissingLocalFiles();
+                                      });
+                                    },
+                            ),
                             const SizedBox(height: 18),
                             _SettingsSectionTitle(
                                 title: 'Library', isDarkMode: _isDarkMode),

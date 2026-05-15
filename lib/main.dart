@@ -13,6 +13,7 @@ import 'dart:ui';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -33,20 +34,41 @@ import 'widgets/glassy_container.dart';
 
 part 'services/drive_utils.dart';
 part 'services/metadata_service.dart';
+part 'services/local_file_source.dart';
 part 'screens/home_tab.dart';
 part 'screens/library_tab.dart';
 part 'screens/drive_tab.dart';
 part 'widgets/library_widgets.dart';
+part 'widgets/liked_widgets.dart';
+part 'widgets/library_artist_widgets.dart';
+part 'widgets/library_song_widgets.dart';
+part 'widgets/library_album_widgets.dart';
 part 'widgets/player_widgets.dart';
 part 'widgets/settings_widgets.dart';
 part 'widgets/search_widgets.dart';
 part 'widgets/visual_widgets.dart';
 part 'widgets/background_widgets.dart';
 part 'widgets/album_detail_widgets.dart';
+part 'widgets/player_shell_widgets.dart';
+part 'widgets/home_widgets.dart';
+part 'widgets/main_visual_widgets.dart';
+part 'utils/main_color_helpers.dart';
+part 'utils/main_format_helpers.dart';
 
 const bool kVerbosePlaybackLogs = false;
 const bool kVerboseUiLogs = false;
 const bool kVerboseScanLogs = false;
+const bool kAlbumKeyDebug = false;
+const bool kAlbumDisplayDebug = false;
+const bool kAlbumCoverDebug = false;
+const bool kHomeCacheDebug = false;
+
+final Stopwatch _startupBootStopwatch = Stopwatch();
+bool _startupFirstFrameLogged = false;
+int _startupSavedLocalAlbumCount = 0;
+int _startupSavedDriveAlbumCount = 0;
+bool _startupHasSelectedLocalFolders = false;
+Future<void>? _audioServiceInitFuture;
 
 void _verbosePlaybackLog(String message) {
   if (kVerbosePlaybackLogs) debugPrint(message);
@@ -66,12 +88,15 @@ void _verboseScanLog(String message) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _startupBootStopwatch
+    ..reset()
+    ..start();
+  debugPrint('Startup minimal start');
   assert(() {
     debugPrint('main start');
     return true;
   }());
   FlutterForegroundTask.initCommunicationPort();
-  await _initAudioService();
   await _loadStartupThemePreference();
 
   SystemChrome.setSystemUIOverlayStyle(
@@ -88,6 +113,8 @@ Future<void> main() async {
     debugPrint('runApp start');
     return true;
   }());
+  debugPrint(
+      'Perf Startup mainToRunApp=${_startupBootStopwatch.elapsedMilliseconds}');
   runApp(const MusixApp());
 }
 
@@ -99,7 +126,40 @@ Future<void> _loadStartupThemePreference() async {
   try {
     final prefs = await SharedPreferences.getInstance();
     _initialDarkMode = prefs.getString(_themeModePrefsKey) != 'light';
+    final rawAlbums = prefs.getString(_albumsPrefsKey);
+    if (rawAlbums != null && rawAlbums.isNotEmpty) {
+      final decoded = json.decode(rawAlbums);
+      if (decoded is List) {
+        var localCount = 0;
+        var driveCount = 0;
+        for (final item in decoded) {
+          if (item is! Map) continue;
+          final album = Map<String, String>.from(
+            item.map((key, value) => MapEntry('$key', '${value ?? ''}')),
+          );
+          final id = (album['id'] ?? '').trim();
+          final source = (album['source'] ?? '').trim();
+          if (source == 'local' || id.startsWith('local_album:')) {
+            localCount++;
+          } else {
+            driveCount++;
+          }
+        }
+        _startupSavedLocalAlbumCount = localCount;
+        _startupSavedDriveAlbumCount = driveCount;
+      }
+    }
+    final savedFolders = prefs
+            .getStringList(_localFoldersPrefsKey)
+            ?.where((path) => path.trim().isNotEmpty)
+            .toList() ??
+        const <String>[];
+    _startupHasSelectedLocalFolders = savedFolders.isNotEmpty;
   } catch (_) {}
+}
+
+Future<void> _ensureAudioServiceInitialized() {
+  return _audioServiceInitFuture ??= _initAudioService();
 }
 
 Future<void> _initAudioService() async {
@@ -138,218 +198,8 @@ Future<void> _initAudioService() async {
 }
 
 // ─── Neon-Blob Palette ───────────────────────────────────────────────────────
-const _neonPurple = Color(0xFF4B118C);
-const _neonMagenta = Color(0xFFEE09A5);
-
-// Artwork radius for album/song covers (sharp look like real album artwork)
-const double kArtworkRadius = 8.0;
-
-// Light Mode
-const _lightBg = Color(0xFFFFFBFF);
-const _lightSurface = Color(0xFFFFFFFF);
-const _lightSurfaceSoft = Color(0xFFFFF1F8);
-const _lightGlassBase = Color(0xFFF0EAF1);
-const _lightAccentPink = Color(0xFFFF4FA3);
-const _lightNavIconPink = Color(0xFFFF4FA3);
-const _lightAccentPurple = Color(0xFF9B5CFF);
-const _lightAccentMagenta = Color(0xFFE94DFF);
-const _lightText = Color(0xFF20151E);
-const _lightSubtext = Color(0xFF76616F);
-const _lightTextPri = Color(0xFF1A1A1A);
-const _lightTextSub = Color(0xFF666666);
-
-// Dark Mode
-const _darkBg = Color(0xFF0D0D11);
-const _darkTextPri = Color(0xFFFFFFFF);
-const _darkTextSub = Color(0xFFA0A0B0);
-
-// Legacy colors for compatibility (will be phased out)
-const _bg = Color(0xFF101014);
-const _pink = Color(0xFFFF2A7A);
-const _accentWhite = Color(0xFFEDEDED);
-const _accentChampagne = Color(0xFFE6C8A0);
-const _accentBlue = Color(0xFF8EA7FF);
-const _accentPink = Color(0xFFFF4D8D);
-const _accentDefault = _accentWhite;
-const _cyan = Color(0xFF00E5FF);
-const _purple = Color(0xFF7C4DFF);
-const _textPri = Color(0xFFFFFFFF);
-const _textSub = Color(0xFFA0A0B0);
-const _glassWhite = Color(0x15FFFFFF);
-const glassBorder = Color(0x30FFFFFF);
-
-final List<Color> _defaultDynamicColors = [
-  const Color(0xFF1C1C22),
-  _accentPink,
-  _accentBlue,
-  _accentWhite,
-];
 
 // ─── Neon-Blob ColorScheme Generator ───────────────────────────────────────
-
-/// Calculates luminance for WCAG contrast ratio
-double _calculateLuminance(Color color) {
-  final r = color.red / 255;
-  final g = color.green / 255;
-  final b = color.blue / 255;
-
-  final rr =
-      r <= 0.03928 ? r / 12.92 : math.pow((r + 0.055) / 1.055, 2.4).toDouble();
-  final gg =
-      g <= 0.03928 ? g / 12.92 : math.pow((g + 0.055) / 1.055, 2.4).toDouble();
-  final bb =
-      b <= 0.03928 ? b / 12.92 : math.pow((b + 0.055) / 1.055, 2.4).toDouble();
-
-  return 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
-}
-
-/// Calculates contrast ratio between two colors (WCAG)
-double _calculateContrastRatio(Color foreground, Color background) {
-  final lum1 = _calculateLuminance(foreground);
-  final lum2 = _calculateLuminance(background);
-  final lighter = math.max(lum1, lum2);
-  final darker = math.min(lum1, lum2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
-/// Darkens a color to meet WCAG AA contrast (4.5:1) against white
-Color _darkenForAccessibility(Color color,
-    {Color background = const Color(0xFFFFFFFF)}) {
-  Color adjusted = color;
-  int steps = 0;
-  while (_calculateContrastRatio(adjusted, background) < 4.5 && steps < 100) {
-    adjusted = Color.fromARGB(
-      adjusted.alpha,
-      (adjusted.red * 0.95).round(),
-      (adjusted.green * 0.95).round(),
-      (adjusted.blue * 0.95).round(),
-    );
-    steps++;
-  }
-  return adjusted;
-}
-
-/// Lightens a color to meet WCAG AA contrast (4.5:1) against dark background
-Color _lightenForAccessibility(Color color,
-    {Color background = const Color(0xFF0D0D11)}) {
-  Color adjusted = color;
-  int steps = 0;
-  while (_calculateContrastRatio(adjusted, background) < 4.5 && steps < 100) {
-    adjusted = Color.fromARGB(
-      adjusted.alpha,
-      math.min(255, (adjusted.red + (255 - adjusted.red) * 0.1).round()),
-      math.min(255, (adjusted.green + (255 - adjusted.green) * 0.1).round()),
-      math.min(255, (adjusted.blue + (255 - adjusted.blue) * 0.1).round()),
-    );
-    steps++;
-  }
-  return adjusted;
-}
-
-/// Generates a complete ColorScheme for Neon-Blob aesthetic
-class NeonBlobColorScheme {
-  final Color primary;
-  final Color onPrimary;
-  final Color primaryContainer;
-  final Color onPrimaryContainer;
-  final Color secondary;
-  final Color onSecondary;
-  final Color secondaryContainer;
-  final Color onSecondaryContainer;
-  final Color tertiary;
-  final Color onTertiary;
-  final Color surface;
-  final Color onSurface;
-  final Color onSurfaceVariant;
-  final Color outline;
-  final Color outlineVariant;
-  final Color disabled;
-  final Color onDisabled;
-  final Color hover;
-  final Color pressed;
-
-  const NeonBlobColorScheme({
-    required this.primary,
-    required this.onPrimary,
-    required this.primaryContainer,
-    required this.onPrimaryContainer,
-    required this.secondary,
-    required this.onSecondary,
-    required this.secondaryContainer,
-    required this.onSecondaryContainer,
-    required this.tertiary,
-    required this.onTertiary,
-    required this.surface,
-    required this.onSurface,
-    required this.onSurfaceVariant,
-    required this.outline,
-    required this.outlineVariant,
-    required this.disabled,
-    required this.onDisabled,
-    required this.hover,
-    required this.pressed,
-  });
-
-  /// Generate Light Mode ColorScheme
-  factory NeonBlobColorScheme.light() {
-    // Darken purple and magenta for text on white
-    final primary = _darkenForAccessibility(_neonPurple);
-    final secondary = _darkenForAccessibility(_neonMagenta);
-    final tertiary = _darkenForAccessibility(_neonPurple.withOpacity(0.8));
-
-    return NeonBlobColorScheme(
-      primary: primary,
-      onPrimary: _lightBg,
-      primaryContainer: primary.withOpacity(0.12),
-      onPrimaryContainer: primary,
-      secondary: secondary,
-      onSecondary: _lightBg,
-      secondaryContainer: secondary.withOpacity(0.12),
-      onSecondaryContainer: secondary,
-      tertiary: tertiary,
-      onTertiary: _lightBg,
-      surface: _lightBg,
-      onSurface: _lightTextPri,
-      onSurfaceVariant: _lightTextSub,
-      outline: primary.withOpacity(0.2),
-      outlineVariant: secondary.withOpacity(0.15),
-      disabled: Color.lerp(primary, const Color(0xFF808080), 0.5)!,
-      onDisabled: _lightTextSub.withOpacity(0.5),
-      hover: primary.withOpacity(0.08),
-      pressed: primary.withOpacity(0.15),
-    );
-  }
-
-  /// Generate Dark Mode ColorScheme
-  factory NeonBlobColorScheme.dark() {
-    // Lighten purple and magenta for text on dark
-    final primary = _lightenForAccessibility(_neonPurple);
-    final secondary = _lightenForAccessibility(_neonMagenta);
-    final tertiary = _lightenForAccessibility(_neonPurple.withOpacity(0.8));
-
-    return NeonBlobColorScheme(
-      primary: primary,
-      onPrimary: _darkBg,
-      primaryContainer: primary.withOpacity(0.15),
-      onPrimaryContainer: primary,
-      secondary: secondary,
-      onSecondary: _darkBg,
-      secondaryContainer: secondary.withOpacity(0.15),
-      onSecondaryContainer: secondary,
-      tertiary: tertiary,
-      onTertiary: _darkBg,
-      surface: _darkBg,
-      onSurface: _darkTextPri,
-      onSurfaceVariant: _darkTextSub,
-      outline: primary.withOpacity(0.3),
-      outlineVariant: secondary.withOpacity(0.2),
-      disabled: Color.lerp(primary, const Color(0xFF404040), 0.6)!,
-      onDisabled: _darkTextSub.withOpacity(0.4),
-      hover: primary.withOpacity(0.12),
-      pressed: primary.withOpacity(0.22),
-    );
-  }
-}
 
 // ─── Neon-Blob Background Widget ───────────────────────────────────────────────
 
@@ -379,145 +229,7 @@ const _accentModePink = 'pink';
 final ValueNotifier<String> glassModeNotifier =
     ValueNotifier<String>(_glassModeBalanced);
 
-bool _isValidGlassMode(String mode) {
-  return mode == glassModePerformance ||
-      mode == _glassModeBalanced ||
-      mode == glassModePretty;
-}
-
-bool _isValidAccentMode(String mode) {
-  return mode == _accentModeWhite ||
-      mode == _accentModeChampagne ||
-      mode == _accentModeBlue ||
-      mode == _accentModePink;
-}
-
-Color _accentColorForMode(String mode) {
-  if (mode == _accentModeWhite) return _accentWhite;
-  if (mode == _accentModeBlue) return _accentBlue;
-  if (mode == _accentModePink) return _accentPink;
-  return _accentChampagne;
-}
-
-String _accentModeLabelForMode(String mode) {
-  if (mode == _accentModeWhite) return 'White';
-  if (mode == _accentModeBlue) return 'Soft Blue';
-  if (mode == _accentModePink) return 'Pink';
-  return 'Champagne';
-}
-
 // ─── 4-Color Deterministic Gradient Generator ────────────────────────────────
-List<Color> getAlbumGradient(String name) {
-  int hash = 0;
-  for (int i = 0; i < name.length; i++) {
-    hash = name.codeUnitAt(i) + ((hash << 5) - hash);
-  }
-
-  final base = (hash % 360).abs().toDouble();
-
-  return [
-    HSLColor.fromAHSL(1.0, base, 0.46, 0.30).toColor(),
-    HSLColor.fromAHSL(1.0, (base + 42) % 360, 0.52, 0.44).toColor(),
-    HSLColor.fromAHSL(1.0, (base + 120) % 360, 0.38, 0.34).toColor(),
-    HSLColor.fromAHSL(1.0, (base + 210) % 360, 0.34, 0.24).toColor(),
-  ];
-}
-
-List<Color> _safeColors(List<Color> colors) {
-  if (colors.length >= 4) return colors;
-  return _defaultDynamicColors;
-}
-
-String _colorToHex(Color color) {
-  return color.value.toRadixString(16).padLeft(8, '0');
-}
-
-Color? _colorFromHex(String value) {
-  final parsed = int.tryParse(value, radix: 16);
-  if (parsed == null) return null;
-  return Color(parsed);
-}
-
-class _ArtworkCandidate {
-  final String source;
-  final String title;
-  final String artist;
-  final String year;
-  final String imageUrl;
-  final String thumbnailUrl;
-  final double confidence;
-
-  const _ArtworkCandidate({
-    required this.source,
-    required this.title,
-    required this.artist,
-    required this.year,
-    required this.imageUrl,
-    required this.thumbnailUrl,
-    required this.confidence,
-  });
-}
-
-String _normalizeArtworkMatch(String value) {
-  return value
-      .toLowerCase()
-      .replaceAll(RegExp(r'\[.*?\]|\(.*?\)'), ' ')
-      .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-}
-
-double _artworkConfidence({
-  required String wantedAlbum,
-  required String wantedArtist,
-  required String candidateAlbum,
-  required String candidateArtist,
-  String wantedYear = '',
-  String candidateYear = '',
-}) {
-  final album = _normalizeArtworkMatch(wantedAlbum);
-  final artist = _normalizeArtworkMatch(wantedArtist);
-  final candAlbum = _normalizeArtworkMatch(candidateAlbum);
-  final candArtist = _normalizeArtworkMatch(candidateArtist);
-  var score = 0.0;
-
-  if (album.isNotEmpty && candAlbum.isNotEmpty) {
-    if (album == candAlbum) {
-      score += 0.58;
-    } else if (candAlbum.contains(album) || album.contains(candAlbum)) {
-      score += 0.38;
-    }
-  }
-
-  if (artist.isNotEmpty &&
-      artist != 'unknown artist' &&
-      candArtist.isNotEmpty) {
-    if (artist == candArtist) {
-      score += 0.32;
-    } else if (candArtist.contains(artist) || artist.contains(candArtist)) {
-      score += 0.20;
-    }
-  }
-
-  final y = RegExp(r'\d{4}').firstMatch(wantedYear)?.group(0) ?? '';
-  final cy = RegExp(r'\d{4}').firstMatch(candidateYear)?.group(0) ?? '';
-  if (y.isNotEmpty && cy.isNotEmpty && y == cy) score += 0.10;
-
-  return score.clamp(0.0, 1.0);
-}
-
-String _localCoverPath(String source) {
-  if (source.startsWith('file://')) {
-    return Uri.parse(source).toFilePath();
-  }
-  return source;
-}
-
-bool _isLocalCover(String? source) {
-  if (source == null || source.isEmpty) return false;
-  return source.startsWith('file://') || source.startsWith('/');
-}
-
 // Album art can be massive when it comes from embedded tags. Decoding every
 // image at full resolution makes grids feel slow even when the files are
 // already cached locally. Keep UI decoding capped to a sensible cover size.
@@ -530,28 +242,6 @@ final Set<String> _albumCacheKeyLogSeen = <String>{};
 final Set<String> _albumDisplayLogSeen = <String>{};
 
 String _coverSourceKey(String source) => source.trim();
-
-String _normalizeAlbumKeySegment(String value) {
-  final cleaned = value.trim();
-  if (cleaned.isEmpty) return '';
-  final parts = cleaned
-      .split(',')
-      .map((part) => part.trim())
-      .where((part) => part.isNotEmpty)
-      .toSet()
-      .toList()
-    ..sort();
-  if (parts.isEmpty) return '';
-  return parts.join(',');
-}
-
-String _firstNonEmptyString(Iterable<dynamic> values) {
-  for (final value in values) {
-    final text = value?.toString().trim() ?? '';
-    if (text.isNotEmpty) return text;
-  }
-  return '';
-}
 
 String _albumCacheKey(dynamic albumOrTrack, {String source = 'unknown'}) {
   String raw = '';
@@ -610,7 +300,7 @@ String _albumCacheKey(dynamic albumOrTrack, {String source = 'unknown'}) {
   if (key.isEmpty) key = 'unknown';
 
   final logKey = '$source|$key';
-  if (_albumCacheKeyLogSeen.add(logKey)) {
+  if (kAlbumKeyDebug && _albumCacheKeyLogSeen.add(logKey)) {
     debugPrint('AlbumKey resolve raw=$raw key=$key source=$source');
   }
   return key;
@@ -736,56 +426,10 @@ Widget _coverImage(
 }
 
 // ─── App Root ────────────────────────────────────────────────────────────────
-class MusixApp extends StatelessWidget {
-  const MusixApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Infame',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: _bg,
-        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
-        sliderTheme: const SliderThemeData(
-          thumbColor: _accentDefault,
-          activeTrackColor: _pink,
-          inactiveTrackColor: _glassWhite,
-          trackHeight: 4,
-          thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
-          overlayShape: RoundSliderOverlayShape(overlayRadius: 14),
-        ),
-      ),
-      home: const MainScreen(),
-    );
-  }
-}
 
 // ─── Now-Playing State ──────────────────────────────────────────────────────
 
 final _nowPlaying = NowPlaying();
-
-class _KeepAlivePage extends StatefulWidget {
-  final WidgetBuilder builder;
-
-  const _KeepAlivePage({super.key, required this.builder});
-
-  @override
-  State<_KeepAlivePage> createState() => _KeepAlivePageState();
-}
-
-class _KeepAlivePageState extends State<_KeepAlivePage>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.builder(context);
-  }
-}
 
 // ─── Main Screen ────────────────────────────────────────────────────────────
 class MainScreen extends StatefulWidget {
@@ -855,6 +499,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool _loadingSaved = true;
   bool _isScanning = false;
   static const _albumsKey = _albumsPrefsKey;
+  bool _deferredStartupLoadStarted = false;
+  bool _pendingHomeBrowseCacheInvalidation = false;
+  bool _localImportInProgress = false;
+  final ValueNotifier<String?> _localImportStatus =
+      ValueNotifier<String?>(null);
+  final Map<String, String> _localImportTempPathCache = {};
+  final Set<String> _localImportTempFiles = <String>{};
+  int _localImportCopyMsTotal = 0;
+  int _localImportCopyCount = 0;
 
   Map<String, String>? _viewingAlbum;
   List<drive.File> _albumTracks = [];
@@ -889,7 +542,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     setState(() {});
   }
 
-  void _invalidateHomeBrowseCache() {
+  void _invalidateHomeBrowseCache({bool force = false}) {
+    if (_localImportInProgress && !force) {
+      _pendingHomeBrowseCacheInvalidation = true;
+      return;
+    }
     _homeBrowseCacheVersion++;
     _cachedHomeListKey = '';
     _cachedRecentBrainAlbums = [];
@@ -897,6 +554,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _cachedHomeLibraryAlbums = [];
     _cachedHomeExploreAlbums = [];
     _cachedHomeHeavyRotationAlbums = [];
+    _pendingHomeBrowseCacheInvalidation = false;
   }
 
   void _invalidateLibraryBrowseCache() {
@@ -926,6 +584,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   final Map<String, Map<String, String>> _libraryBrain = {};
   final Map<String, Map<String, String>> _libraryTrackIndex = {};
   final List<Map<String, String>> _playHistory = [];
+  List<String> _selectedLocalFolders = <String>[];
   bool _homeShowContinue = true;
   bool _homeShowGenres = true;
   bool _homeShowDecades = true;
@@ -956,6 +615,33 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   );
   AudioPlayer? _audioServiceAttachedPlayer;
 
+  int get _localLibraryCount => _albums.isNotEmpty
+      ? _albums.where((album) => _isLocalAlbumRecord(album)).length
+      : _startupSavedLocalAlbumCount;
+
+  int get _driveLibraryCount => _albums.isNotEmpty
+      ? _albums.length -
+          _albums.where((album) => _isLocalAlbumRecord(album)).length
+      : _startupSavedDriveAlbumCount;
+
+  bool get _hasLocalMusicLibrary =>
+      _localLibraryCount > 0 ||
+      _selectedLocalFolders.isNotEmpty ||
+      _startupHasSelectedLocalFolders;
+
+  String get _startupSelectedSource {
+    if (_user != null && _driveLibraryCount > 0) return 'drive';
+    if (_hasLocalMusicLibrary) return 'local';
+    return 'none';
+  }
+
+  void _logStartupSourceState() {
+    debugPrint('Startup hasGoogleAccount=${_user != null}');
+    debugPrint('Startup localLibraryCount=$_localLibraryCount');
+    debugPrint('Startup driveLibraryCount=$_driveLibraryCount');
+    debugPrint('Startup selectedSource=$_startupSelectedSource');
+  }
+
   InfameAudioHandler? get _infameAudioHandler {
     return _infameAudioHandlerInstance;
   }
@@ -979,52 +665,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     handler.syncPlaybackStateFromPlayer();
   }
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _pageController = PageController(initialPage: _navIndex);
-    _loadUiPreferences();
-    _loadLikedTracks();
-    _loadArtistImageCache();
-    _loadLastPlayed();
-    _loadCachedMetadata();
-    _loadLibraryBrainAndHistory();
-    _loadLibraryTrackIndex();
-    _loadKnownTrackDurations();
-    _trySilentSignIn();
-
-    FlutterForegroundTask.addTaskDataCallback(_onMetadataTaskData);
-    _startMetadataProgressPolling();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _requestForegroundMetadataPermissions();
-      _initForegroundMetadataService();
-    });
-
-    _processingStateSub = _player.processingStateStream.listen((state) {
-      if (state == ProcessingState.completed) {
-        _handleTrackCompleted(reason: 'processing_completed');
-      } else if (state == ProcessingState.ready ||
-          state == ProcessingState.idle) {
-        _maybeAutoAdvanceAfterPlaybackStop();
-      }
-      _syncAudioServicePlaybackState();
-    });
-    _playerStateSub = _player.playerStateStream.listen((_) {
-      _maybeAutoAdvanceAfterPlaybackStop();
-      _syncAudioServicePlaybackState();
-    });
-    _playbackEventSub = _player.playbackEventStream.listen((event) {
-      _maybeAutoAdvanceFromPlaybackEvent(event);
-      _maybeAutoAdvanceAfterPlaybackStop();
-      _syncAudioServicePlaybackState();
-    });
-    _durationSub = _player.durationStream.listen(_cacheCurrentPlaybackDuration);
-    _startPlaybackEndWatchdog();
-
+  void _bindAudioServiceCallbacks() {
     final handler = _infameAudioHandlerInstance;
-    handler?.bindCallbacks(
+    if (handler == null) return;
+    handler.bindCallbacks(
       onPlay: () async {
         await _player.play();
         _infameAudioHandlerInstance?.syncPlaybackStateFromPlayer();
@@ -1050,6 +694,187 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         await _playPrev();
       },
     );
+  }
+
+  void _scheduleDeferredStartupLoad() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_startupFirstFrameLogged) {
+        _startupFirstFrameLogged = true;
+        debugPrint('Startup firstFrameReady');
+        debugPrint(
+            'Perf Startup firstFrame=${_startupBootStopwatch.elapsedMilliseconds}');
+      }
+      if (!mounted || _deferredStartupLoadStarted) return;
+      _deferredStartupLoadStarted = true;
+      unawaited(_runDeferredStartupLoad());
+    });
+  }
+
+  Future<void> _runDeferredStartupLoad() async {
+    debugPrint('Startup deferredLoad start');
+    final stopwatch = Stopwatch()..start();
+    try {
+      await _ensureAudioServiceInitialized();
+      if (!mounted) return;
+      _bindAudioServiceCallbacks();
+      _ensureAudioServicePlayerAttached();
+
+      await _loadUiPreferences();
+      await Future<void>.delayed(Duration.zero);
+      await _loadLikedTracks();
+      await Future<void>.delayed(Duration.zero);
+      await _loadArtistImageCache();
+      await Future<void>.delayed(Duration.zero);
+      await _loadLastPlayed();
+      await Future<void>.delayed(Duration.zero);
+      await _loadLibraryTrackIndex();
+      await Future<void>.delayed(Duration.zero);
+      await _loadCachedMetadata();
+      await Future<void>.delayed(Duration.zero);
+      await _loadLibraryBrainAndHistory();
+      await Future<void>.delayed(Duration.zero);
+      await _loadKnownTrackDurations();
+      await Future<void>.delayed(Duration.zero);
+      await _loadSelectedLocalFolders();
+      await Future<void>.delayed(Duration.zero);
+      await _loadAlbums();
+      await Future<void>.delayed(Duration.zero);
+      unawaited(_cleanupStaleLocalImportTempFiles());
+      unawaited(_cleanupStaleMetadataScanTempFiles());
+      await Future<void>.delayed(Duration.zero);
+      await _trySilentSignIn();
+
+      FlutterForegroundTask.addTaskDataCallback(_onMetadataTaskData);
+      _startMetadataProgressPolling();
+
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+      await _requestForegroundMetadataPermissions();
+      _initForegroundMetadataService();
+    } finally {
+      debugPrint(
+          'Startup deferredLoad done elapsedMs=${stopwatch.elapsedMilliseconds}');
+    }
+  }
+
+  void _setLocalImportProgress(
+    String? message, {
+    bool inProgress = false,
+  }) {
+    _localImportInProgress = inProgress;
+    if (_localImportStatus.value == message) return;
+    _localImportStatus.value = message;
+  }
+
+  void _resetLocalImportSessionState() {
+    _localImportCopyMsTotal = 0;
+    _localImportCopyCount = 0;
+    _localImportTempPathCache.clear();
+    _localImportTempFiles.clear();
+  }
+
+  Future<void> _cleanupLocalImportTempFiles() async {
+    final tempFiles = _localImportTempFiles.toList();
+    _localImportTempFiles.clear();
+    _localImportTempPathCache.clear();
+    for (final path in tempFiles) {
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+          debugPrint('LocalImport tempCopy deleted path=$path');
+        }
+      } catch (_) {}
+    }
+    var remainingCount = 0;
+    var remainingBytes = 0;
+    for (final path in tempFiles) {
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          remainingCount++;
+          remainingBytes += await file.length();
+        }
+      } catch (_) {}
+    }
+    debugPrint(
+        'LocalImport tempCleanup remainingCount=$remainingCount remainingBytes=$remainingBytes');
+  }
+
+  Future<void> _cleanupStaleMetadataScanTempFiles() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (!await tempDir.exists()) return;
+
+      final now = DateTime.now();
+      int deletedCount = 0;
+      int deletedBytes = 0;
+
+      await for (final entity in tempDir.list(followLinks: false)) {
+        if (entity is! File) continue;
+
+        final name = entity.uri.pathSegments.isNotEmpty
+            ? entity.uri.pathSegments.last
+            : entity.path;
+
+        // Clean up metadata scan temp files (musix_meta_* and musix_deep_*)
+        if (!name.startsWith('musix_meta_') &&
+            !name.startsWith('musix_deep_')) {
+          continue;
+        }
+
+        try {
+          final stat = await entity.stat();
+          final age = now.difference(stat.modified);
+
+          // Delete files older than 1 hour
+          if (age.inHours >= 1) {
+            final bytes = await entity.length();
+            await entity.delete();
+            deletedCount++;
+            deletedBytes += bytes;
+            debugPrint('[StorageCleanup] deleted temp file=$name bytes=$bytes');
+          }
+        } catch (_) {}
+      }
+
+      if (deletedCount > 0) {
+        final deletedMB = deletedBytes / (1024 * 1024);
+        debugPrint(
+          '[StorageCleanup] metadata scan temp cleanup deleted=$deletedCount sizeMB=${deletedMB.toStringAsFixed(2)}',
+        );
+      }
+    } catch (e) {
+      debugPrint('[StorageCleanup] error cleaning metadata temp files: $e');
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _pageController = PageController(initialPage: _navIndex);
+    _scheduleDeferredStartupLoad();
+
+    _processingStateSub = _player.processingStateStream.listen((state) {
+      if (state == ProcessingState.completed) {
+        _handleTrackCompleted(reason: 'processing_completed');
+      } else if (state == ProcessingState.ready ||
+          state == ProcessingState.idle) {
+        _maybeAutoAdvanceAfterPlaybackStop();
+      }
+      _syncAudioServicePlaybackState();
+    });
+    _playerStateSub = _player.playerStateStream.listen((_) {
+      _maybeAutoAdvanceAfterPlaybackStop();
+      _syncAudioServicePlaybackState();
+    });
+    _playbackEventSub = _player.playbackEventStream.listen((event) {
+      _maybeAutoAdvanceFromPlaybackEvent(event);
+      _maybeAutoAdvanceAfterPlaybackStop();
+      _syncAudioServicePlaybackState();
+    });
+    _durationSub = _player.durationStream.listen(_cacheCurrentPlaybackDuration);
+    _startPlaybackEndWatchdog();
     DriveAudioSource.onEndReached = (fileId) async {
       if (!mounted) return;
       final currentTrack = _nowPlaying.track ?? _nowPlaying.currentTrack;
@@ -1062,7 +887,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       await _handleTrackCompleted(reason: 'drive_eof');
     };
     _searchSearchController.text = _searchQuery;
-    _ensureAudioServicePlayerAttached();
   }
 
   @override
@@ -1078,6 +902,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _durationSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_shutdownPlaybackService());
+    _localImportStatus.dispose();
     _pageController.dispose();
     _librarySearchController.dispose();
     _searchSearchController.dispose();
@@ -1117,7 +942,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final changed = _mergeCachedMetadataDurations();
     if (changed) {
       await _saveKnownTrackDurations();
-      await _saveLibraryTrackIndex();
+      if (_libraryTrackIndex.isNotEmpty) {
+        await _saveLibraryTrackIndex();
+      }
     }
     if (mounted) setState(() {});
   }
@@ -1724,16 +1551,65 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_libraryTrackIndexKey);
-      if (raw == null || raw.isEmpty) return;
+      final rawExists = raw != null && raw.isNotEmpty;
+      final rawLength = raw?.length ?? 0;
 
-      final decoded = json.decode(raw);
+      debugPrint('LocalTrackRestore storageKey=$_libraryTrackIndexKey');
+      debugPrint(
+          'LocalTrackRestore storageLocation=prefs:$_libraryTrackIndexKey');
+      debugPrint('LocalTrackRestore rawExists=$rawExists');
+      debugPrint('LocalTrackRestore rawLength=$rawLength');
+
+      if (raw == null || raw.isEmpty) {
+        debugPrint('LocalTrackRestore decodedCount=0');
+        debugPrint('LocalTrackRestore rejectedCount=0');
+        return;
+      }
+
+      dynamic decoded;
+      try {
+        decoded = json.decode(raw);
+      } catch (e) {
+        debugPrint('LocalTrackRestore decodeError=$e');
+        debugPrint(
+            'LocalTrackRestore rawPreview=${raw.substring(0, math.min(500, raw.length))}');
+        return;
+      }
       if (decoded is Map) {
+        var decodedCount = 0;
+        var rejectedCount = 0;
         _libraryTrackIndex.clear();
+        Map<String, String>? firstDecoded;
         decoded.forEach((key, value) {
           if (key is String && value is Map) {
-            _libraryTrackIndex[key] = Map<String, String>.from(value);
+            final record = Map<String, String>.from(value);
+            if (record.isEmpty) {
+              rejectedCount++;
+              return;
+            }
+            final normalizedId = record['id']?.trim().isNotEmpty == true
+                ? record['id']!.trim()
+                : key.trim();
+            if (normalizedId.isEmpty) {
+              rejectedCount++;
+              return;
+            }
+            record['id'] = normalizedId;
+            _libraryTrackIndex[normalizedId] = record;
+            firstDecoded ??= record;
+            decodedCount++;
+          } else {
+            rejectedCount++;
           }
         });
+
+        debugPrint('LocalTrackRestore decodedCount=$decodedCount');
+        debugPrint('LocalTrackRestore rejectedCount=$rejectedCount');
+        if (firstDecoded != null) {
+          final decodedSample = firstDecoded!;
+          debugPrint(
+              'LocalTrackRestore firstDecoded albumKey=${decodedSample['albumId'] ?? decodedSample['albumKey'] ?? ''} title=${decodedSample['title'] ?? ''} uri=${decodedSample['localUri'] ?? ''} path=${decodedSample['localPath'] ?? decodedSample['path'] ?? ''} source=${decodedSample['source'] ?? ''}');
+        }
 
         // Repair old records so Songs/Artists inherit current album covers and
         // durations without needing the album to be opened first.
@@ -1748,18 +1624,60 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           }
         }
 
-        await _saveLibraryTrackIndex();
         _invalidateLibraryBrowseCache();
         _queueArtistImagePrefetch();
+      } else {
+        debugPrint('LocalTrackRestore decodeError=decoded_not_map');
+        debugPrint(
+            'LocalTrackRestore rawPreview=${raw.substring(0, math.min(500, raw.length))}');
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('LocalTrackRestore error=$e');
+    }
   }
 
-  Future<void> _saveLibraryTrackIndex() async {
+  Future<void> _saveLibraryTrackIndex(
+      {bool logLocalPersistence = false}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          _libraryTrackIndexKey, json.encode(_libraryTrackIndex));
+      final raw = json.encode(_libraryTrackIndex);
+      await prefs.setString(_libraryTrackIndexKey, raw);
+
+      if (logLocalPersistence) {
+        final localRecords = _libraryTrackIndex.values
+            .where((record) => (record['source'] ?? '') == 'local')
+            .toList();
+        final storageKey = _libraryTrackIndexKey;
+        debugPrint('LocalTrackPersist storageKey=$storageKey');
+        debugPrint(
+            'LocalTrackPersist storageLocation=prefs:$_libraryTrackIndexKey');
+        debugPrint('LocalTrackPersist writeCount=${localRecords.length}');
+        if (localRecords.isNotEmpty) {
+          final first = localRecords.first;
+          debugPrint(
+              'LocalTrackPersist firstSaved albumKey=${first['albumId'] ?? first['albumKey'] ?? ''} title=${first['title'] ?? ''} uri=${first['localUri'] ?? ''} path=${first['localPath'] ?? first['path'] ?? ''} source=${first['source'] ?? ''}');
+        }
+        try {
+          final persistedRaw = prefs.getString(_libraryTrackIndexKey) ?? '';
+          var readBackCount = 0;
+          if (persistedRaw.isNotEmpty) {
+            final decoded = json.decode(persistedRaw);
+            if (decoded is Map) {
+              for (final entry in decoded.entries) {
+                if (entry.key is String && entry.value is Map) {
+                  final record = Map<String, dynamic>.from(entry.value as Map);
+                  if ((record['source'] ?? '') == 'local') {
+                    readBackCount++;
+                  }
+                }
+              }
+            }
+          }
+          debugPrint('LocalTrackPersist readBackCount=$readBackCount');
+        } catch (e) {
+          debugPrint('LocalTrackPersist readBackError=$e');
+        }
+      }
     } catch (_) {}
   }
 
@@ -2100,7 +2018,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ? 'folder_fallback'
                 : 'none';
     final logKey = 'title|$key|$value|$titleSource';
-    if (_albumDisplayLogSeen.add(logKey)) {
+    if (kAlbumDisplayDebug && _albumDisplayLogSeen.add(logKey)) {
       debugPrint(
           'AlbumDisplay resolved key=$key title="$value" artist="$artistHint" titleSource=$titleSource');
     }
@@ -2135,7 +2053,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ? 'saved'
             : 'none';
     final logKey = 'artist|$key|$value|$artistSource';
-    if (_albumDisplayLogSeen.add(logKey)) {
+    if (kAlbumDisplayDebug && _albumDisplayLogSeen.add(logKey)) {
       debugPrint(
           'AlbumDisplay resolved key=$key artist="$value" artistSource=$artistSource');
     }
@@ -2158,8 +2076,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
     if (direct.isNotEmpty) {
       final logKey = 'cover|$key|$direct';
-      if (_albumDisplayLogSeen.add(logKey)) {
-        debugPrint('AlbumCover key=$key source=album_or_brain hasBytes=false');
+      if (kAlbumCoverDebug && _albumDisplayLogSeen.add(logKey)) {
+        final directHasBytes =
+            _isLocalCover(direct) ? File(direct).existsSync() : false;
+        debugPrint(
+            'AlbumCover lookup key=$key albumCoverBytes=$directHasBytes brainCoverBytes=$directHasBytes cacheCoverBytes=false');
+        debugPrint(
+            'AlbumCover key=$key source=album_or_brain hasBytes=$directHasBytes');
       }
       return direct;
     }
@@ -2167,7 +2090,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final recordCover = _sanitizeCoverSource(_albumCoverFromRecords(records));
     if (recordCover.isNotEmpty) {
       final logKey = 'cover|$key|$recordCover';
-      if (_albumDisplayLogSeen.add(logKey)) {
+      if (kAlbumCoverDebug && _albumDisplayLogSeen.add(logKey)) {
+        debugPrint(
+            'AlbumCover lookup key=$key albumCoverBytes=false brainCoverBytes=false cacheCoverBytes=true');
         debugPrint('AlbumCover key=$key source=track_index hasBytes=true');
       }
       return recordCover;
@@ -2179,7 +2104,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final coverPath = _sanitizeCoverSource(cached?.coverPath);
       if (coverPath.isNotEmpty) {
         final logKey = 'cover|$key|$coverPath';
-        if (_albumDisplayLogSeen.add(logKey)) {
+        if (kAlbumCoverDebug && _albumDisplayLogSeen.add(logKey)) {
+          debugPrint(
+              'AlbumCover lookup key=$key albumCoverBytes=false brainCoverBytes=false cacheCoverBytes=true');
           debugPrint('AlbumCover key=$key source=metadata hasBytes=true');
         }
         return coverPath;
@@ -2187,7 +2114,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     final logKey = 'cover|$key|none';
-    if (_albumDisplayLogSeen.add(logKey)) {
+    if (kAlbumCoverDebug && _albumDisplayLogSeen.add(logKey)) {
+      debugPrint(
+          'AlbumCover lookup key=$key albumCoverBytes=false brainCoverBytes=false cacheCoverBytes=false');
       debugPrint('AlbumCover key=$key source=none hasBytes=false');
     }
     return '';
@@ -2464,18 +2393,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  String _formatDurationMs(int ms) {
-    final duration = Duration(milliseconds: ms);
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes.remainder(60);
-    final seconds = duration.inSeconds.remainder(60);
-
-    if (hours > 0) {
-      return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-    } else {
-      return '$minutes:${seconds.toString().padLeft(2, '0')}';
-    }
-  }
+  String _formatDurationMs(int ms) => _formatDurationMsFromPart(ms);
 
   Future<Duration?> _getDurationWithTemporaryPlayer(
       drive.File file, String token) async {
@@ -2645,7 +2563,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   drive.File _fileFromTrackIndexRecord(Map<String, String> record) {
     final modifiedTime = int.tryParse(record['modifiedTime'] ?? '');
-    return drive.File()
+    final file = drive.File()
       ..id = record['id']
       ..name = record['name']
       ..mimeType = record['mimeType']
@@ -2654,6 +2572,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       ..modifiedTime = modifiedTime != null
           ? DateTime.fromMillisecondsSinceEpoch(modifiedTime)
           : null;
+
+    final source = (record['source'] ?? '').trim();
+    final localPath = (record['localPath'] ?? '').trim();
+    final localUri = (record['localUri'] ?? '').trim();
+    if (source.isNotEmpty || localPath.isNotEmpty || localUri.isNotEmpty) {
+      file.appProperties = <String, String>{
+        if (source.isNotEmpty) 'source': source,
+        if (localPath.isNotEmpty) 'path': localPath,
+        if (localUri.isNotEmpty) 'localUri': localUri,
+      };
+      file.properties = Map<String, String>.from(file.appProperties!);
+    }
+
+    return file;
   }
 
   String _resolveCurrentTrackCover(
@@ -2798,6 +2730,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         'size': track.size ?? '0',
         'modifiedTime':
             track.modifiedTime?.millisecondsSinceEpoch.toString() ?? '',
+        if (DriveUtils.isLocalFile(track)) 'source': 'local',
+        if ((DriveUtils.localSourceRef(track) ?? '').isNotEmpty &&
+            !DriveUtils.isContentUriString(DriveUtils.localSourceRef(track)!))
+          'localPath': DriveUtils.localSourceRef(track)!,
+        if ((DriveUtils.localSourceRef(track) ?? '').isNotEmpty &&
+            DriveUtils.isContentUriString(DriveUtils.localSourceRef(track)!))
+          'localUri': DriveUtils.localSourceRef(track)!,
         if (durationMs != null && durationMs > 0)
           'durationMs': durationMs.toString(),
       };
@@ -2989,20 +2928,25 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       });
 
       _invalidateHomeBrowseCache();
-      _rebuildBrainWithCorrectParsing();
+      unawaited(_rebuildBrainWithCorrectParsing());
       _buildBasicLibraryBrain(save: false);
       _queueArtistImagePrefetch();
       _prewarmHomeMetadataCache();
     } catch (_) {}
   }
 
-  void _rebuildBrainWithCorrectParsing() {
+  Future<void> _rebuildBrainWithCorrectParsing() async {
     // Fix any albums that have swapped artist/album from old folder parsing
     debugPrint(
         '[BrainFix] Checking for swapped metadata in ${_libraryBrain.length} albums');
     int fixed = 0;
+    var processed = 0;
 
     for (final entry in _libraryBrain.entries.toList()) {
+      processed++;
+      if (processed % 24 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
       final id = entry.key;
       final brain = entry.value;
       final name = brain['name'] ?? '';
@@ -3878,7 +3822,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     if (account != null) {
       setState(() => _user = account);
-      await _loadAlbums();
+      _logStartupSourceState();
       _ensureDriveExplorerLoaded();
     } else {
       setState(() => _loadingSaved = false);
@@ -3980,7 +3924,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _buildBasicLibraryBrain(save: true);
     final repairedIndex = _repairLibraryTrackIndexFromAlbums();
     if (repairedIndex) await _saveLibraryTrackIndex();
+    if (_albums.any(_isLocalAlbumRecord)) {
+      _rebuildLocalAlbumTrackCacheFromIndex(log: true);
+    }
     if (changed) await _persistAlbums();
+    _logStartupSourceState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _precacheAlbumCovers(limit: 36);
@@ -5735,7 +5683,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             Widget sourceButton(
                 String label, IconData icon, VoidCallback onTap) {
               return Expanded(
-                child: GestureDetector(
+                child: PressableScale(
                   onTap: loading ? null : onTap,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -6044,19 +5992,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     await _clearLibraryCacheSafely();
   }
 
-  void _showSuccess(String msg) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg,
-            style: GoogleFonts.inter(
-                color: Colors.black, fontWeight: FontWeight.w900)),
-        backgroundColor: _accentDefault,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
+  void _showSuccess(String msg) => _showSuccessFromPart(msg);
 
   // ── Cover Art Fetcher ─────────────────────────────────────────────────────
   // ── Cover Art Fetcher ─────────────────────────────────────────────────────
@@ -6548,14 +6484,29 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final albumName =
         normalizedAlbum['displayName'] ?? album['name'] ?? 'Unknown Album';
     final cachedTracks = _albumTracksCache[albumId];
-    final sortedCachedTracks =
-        cachedTracks == null ? null : _sortTracksForAlbum(cachedTracks);
+    final sortedCachedTracks = cachedTracks == null || cachedTracks.isEmpty
+        ? null
+        : _sortTracksForAlbum(cachedTracks);
     final cachedColors = _albumColorCache[albumId];
+    final isLocalAlbum = _isLocalAlbumRecord(normalizedAlbum);
+    final localIndexTracks = isLocalAlbum
+        ? _sortTracksForAlbum(_localTracksForAlbumFromIndex(normalizedAlbum))
+        : <drive.File>[];
+    final localFallbackTracks = isLocalAlbum
+        ? (localIndexTracks.isNotEmpty
+            ? localIndexTracks
+            : _sortTracksForAlbum(_localTracksForAlbum(normalizedAlbum)))
+        : <drive.File>[];
+
+    debugPrint(
+        'AlbumOpen requested albumKey=$albumId cacheCount=${cachedTracks?.length ?? 0} indexCount=${isLocalAlbum ? localIndexTracks.length : 0} fallbackCount=${localFallbackTracks.length}');
 
     setState(() {
       _viewingAlbum = normalizedAlbum;
-      _loadingAlbum = sortedCachedTracks == null;
-      _albumTracks = sortedCachedTracks ?? <drive.File>[];
+      _loadingAlbum = sortedCachedTracks == null &&
+          (!isLocalAlbum || localFallbackTracks.isEmpty);
+      _albumTracks = sortedCachedTracks ??
+          (isLocalAlbum ? localFallbackTracks : <drive.File>[]);
       _albumMetadataLoading = false;
       _albumMetadataDone = 0;
       _albumMetadataTotal = 0;
@@ -6581,14 +6532,29 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     try {
-      final headers = await _user!.authHeaders;
-      final api = drive.DriveApi(GoogleAuthClient(headers));
-      final tracks =
-          _sortTracksForAlbum(await _fetchTracksForAlbumRecord(api, album));
+      List<drive.File> tracks;
+      if (isLocalAlbum) {
+        tracks = localFallbackTracks.isNotEmpty
+            ? localFallbackTracks
+            : _sortTracksForAlbum(_localTracksForAlbum(normalizedAlbum));
+      } else {
+        if (_user == null) {
+          throw Exception('Sign in to load Drive albums.');
+        }
+        final headers = await _user!.authHeaders;
+        final api = drive.DriveApi(GoogleAuthClient(headers));
+        tracks =
+            _sortTracksForAlbum(await _fetchTracksForAlbumRecord(api, album));
+      }
 
       if (!mounted) return;
 
       _albumTracksCache[albumId] = tracks;
+      if (isLocalAlbum && tracks.isEmpty) {
+        debugPrint(
+          'DataIntegrityWarning local album opened with zero restored tracks key=$albumId title=${normalizedAlbum['displayName'] ?? normalizedAlbum['name'] ?? ''} artist=${normalizedAlbum['artist'] ?? ''}',
+        );
+      }
       _applyFirstCachedEmbeddedCover(normalizedAlbum, tracks);
       _indexAlbumFromTracks(normalizedAlbum, tracks, save: false);
       _indexTracksForAlbum(normalizedAlbum, tracks);
@@ -6705,8 +6671,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         }
       }
 
-      // Second pass: best-effort backfill for truly missing durations.
-      if (_user == null) {
+      // Second pass: best-effort backfill for truly missing Drive durations.
+      // Local files are parsed at import time and should not try to use Drive auth.
+      final driveMissingTracks = missingTracks
+          .where((track) => !DriveUtils.isLocalFile(track))
+          .toList(growable: false);
+      if (driveMissingTracks.isEmpty || _user == null) {
         stillMissing =
             missingTracks.where((t) => _durationMsForTrack(t) == null).length;
         return;
@@ -6721,7 +6691,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       var batchedUiUpdates = 0;
       final client = http.Client();
       try {
-        for (final track in missingTracks) {
+        for (final track in driveMissingTracks) {
           final trackId = DriveUtils.effectiveId(track);
           if (trackId == null || trackId.isEmpty) continue;
 
@@ -6792,6 +6762,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     drive.DriveApi api,
     Map<String, String> album,
   ) async {
+    if (_isLocalAlbumRecord(album)) {
+      return _sortTracksForAlbum(_localTracksForAlbum(album));
+    }
+
     final List<drive.File> tracks = [];
     final folderIds =
         (album['id'] ?? '').split(',').where((id) => id.trim().isNotEmpty);
@@ -7327,7 +7301,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }) async {
     _ensureAudioServicePlayerAttached();
     final fileId = DriveUtils.effectiveId(file);
-    if (fileId == null || _user == null) return;
+    if (fileId == null) return;
+    final isLocalTrack = DriveUtils.isLocalFile(file);
+    if (!isLocalTrack && _user == null) return;
 
     final requestSerial = ++_playRequestSerial;
     final activeQueue = _cleanPlaybackQueue(queue, file);
@@ -7360,13 +7336,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     try {
       _changingTrack = true;
 
-      final authHeaders = await _user!.authHeaders;
-      if (requestSerial != _playRequestSerial) return;
-
       String token = '';
-      final bearer =
-          authHeaders['Authorization'] ?? authHeaders['authorization'] ?? '';
-      if (bearer.startsWith('Bearer ')) token = bearer.substring(7);
+      if (!isLocalTrack) {
+        final authHeaders = await _user!.authHeaders;
+        if (requestSerial != _playRequestSerial) return;
+
+        final bearer =
+            authHeaders['Authorization'] ?? authHeaders['authorization'] ?? '';
+        if (bearer.startsWith('Bearer ')) token = bearer.substring(7);
+      }
 
       _nowPlaying.setTrack(
         activeFile,
@@ -7394,15 +7372,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }());
       _syncAudioServicePlaybackState();
       _saveLastPlayed(activeFile, coverUrl: resolvedCoverUrl);
-      _loadMetadataFor(activeFile, token, albumRecord: _viewingAlbum);
+      if (isLocalTrack) {
+        _loadMetadataForLocal(activeFile, albumRecord: _viewingAlbum);
+      } else {
+        _loadMetadataFor(activeFile, token, albumRecord: _viewingAlbum);
+      }
 
       final knownSourceLength = int.tryParse(activeFile.size ?? '') ??
           int.tryParse(_libraryTrackIndex[activeFileId]?['size'] ?? '');
-      final source = DriveAudioSource(
-        activeFileId,
-        token,
-        knownSourceLength: knownSourceLength,
-      );
+      final source = isLocalTrack
+          ? AudioSource.uri(DriveUtils.localAudioUri(activeFile)!)
+          : DriveAudioSource(
+              activeFileId,
+              token,
+              knownSourceLength: knownSourceLength,
+            );
       debugPrint(
         'Infame _playSong loading ${source.runtimeType} '
         'id=$activeFileId name=${activeFile.name}',
@@ -7577,16 +7561,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  String _formatDurationLabel(Duration duration) {
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes
-        .remainder(60)
-        .toString()
-        .padLeft(hours > 0 ? 2 : 1, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    if (hours > 0) return '$hours:$minutes:$seconds';
-    return '$minutes:$seconds';
-  }
+  String _formatDurationLabel(Duration duration) =>
+      _formatDurationLabelFromPart(duration);
 
   String _trackDurationLabel(drive.File file) {
     final key = _trackKey(file);
@@ -7740,289 +7716,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _showSuccess('Cleared upcoming queue.');
   }
 
-  void _showError(String msg) {
-    if (!mounted) return;
+  void _showError(String msg) => _showErrorFromPart(msg);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg, style: const TextStyle(color: _textPri)),
-        backgroundColor: _pink,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      ),
-    );
-  }
-
-  void _showCoverZoom(String heroTag, String coverUrl, List<Color> gradient) {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        opaque: false,
-        barrierDismissible: true,
-        barrierColor: Colors.black.withOpacity(0.86),
-        pageBuilder: (BuildContext context, _, __) {
-          return GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Center(
-              child: Hero(
-                tag: heroTag,
-                child: Container(
-                  width: MediaQuery.of(context).size.width * 0.86,
-                  height: MediaQuery.of(context).size.width * 0.86,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(kArtworkRadius),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: gradient,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: gradient[0].withOpacity(0.50),
-                        blurRadius: 45,
-                        spreadRadius: 8,
-                      ),
-                    ],
-                  ),
-                  child: coverUrl.isNotEmpty
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(kArtworkRadius),
-                          child: _coverImage(coverUrl,
-                              fit: BoxFit.cover,
-                              cacheSize: _coverLargeDecodeSize),
-                        )
-                      : null,
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
+  void _showCoverZoom(String heroTag, String coverUrl, List<Color> gradient) =>
+      _showCoverZoomFromPart(heroTag, coverUrl, gradient);
 
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
-  Widget build(BuildContext context) {
-    if (_user == null) {
-      return _buildSignInScreen();
-    }
+  Widget build(BuildContext context) => _buildMainShellFromPart();
 
-    final accent = _appAccent;
-    final bgColor = _isDarkMode ? _darkBg : _lightBg;
-    final safeBottom = MediaQuery.of(context).padding.bottom;
-
-    return Scaffold(
-      backgroundColor: bgColor,
-      extendBody: false,
-      body: Stack(
-        children: [
-          Positioned.fill(child: _NeonBlobBackground(isDarkMode: _isDarkMode)),
-          SafeArea(
-            bottom: false,
-            child: _viewingAlbum != null
-                ? _buildAlbumView()
-                : PageView.builder(
-                    controller: _pageController,
-                    physics: const BouncingScrollPhysics(),
-                    itemCount: 3,
-                    onPageChanged: (index) {
-                      debugPrint('PageView onPageChanged index=$index');
-                      setState(() {
-                        _navIndex = index;
-                        _viewingAlbum = null;
-                        _currentDynamicColors =
-                            List<Color>.from(_defaultDynamicColors);
-                      });
-                    },
-                    itemBuilder: (context, index) {
-                      switch (index) {
-                        case 0:
-                          return _KeepAlivePage(
-                            key: const PageStorageKey('home_keep_alive'),
-                            builder: (_) => buildHomeTab(),
-                          );
-                        case 1:
-                          return _KeepAlivePage(
-                            key: const PageStorageKey('now_playing_keep_alive'),
-                            builder: (_) => _buildNowPlayingTab(),
-                          );
-                        case 2:
-                          return _KeepAlivePage(
-                            key: const PageStorageKey('library_keep_alive'),
-                            builder: (_) => buildLibraryTab(),
-                          );
-                        default:
-                          return const SizedBox.shrink();
-                      }
-                    },
-                  ),
-          ),
-          Positioned(
-            bottom: 18 + safeBottom,
-            left: 14,
-            right: 14,
-            child: SafeArea(
-              top: false,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-                  child: Container(
-                    height: 64,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: _isDarkMode
-                          ? (_darkBg).withOpacity(0.45)
-                          : _lightGlassBase.withOpacity(0.86),
-                      borderRadius: BorderRadius.circular(28),
-                      border: Border.all(
-                        color: _isDarkMode
-                            ? _neonPurple.withOpacity(0.25)
-                            : _lightAccentPink.withOpacity(0.22),
-                        width: 1,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _isDarkMode
-                              ? _neonPurple.withOpacity(0.15)
-                              : _lightAccentPink.withOpacity(0.12),
-                          blurRadius: 24,
-                          offset: const Offset(0, 12),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: _NavBarItem(
-                            icon: Icons.home_rounded,
-                            label: 'Home',
-                            isDarkMode: _isDarkMode,
-                            isSelected: _navIndex == 0,
-                            onTap: () => _selectRootTab(0),
-                          ),
-                        ),
-                        Expanded(
-                          child: _NavBarItem(
-                            icon: Icons.album_rounded,
-                            label: 'Now Playing',
-                            isDarkMode: _isDarkMode,
-                            isSelected: _navIndex == 1,
-                            onTap: () => _selectRootTab(1),
-                          ),
-                        ),
-                        Expanded(
-                          child: _NavBarItem(
-                            icon: Icons.library_music_rounded,
-                            label: 'Library',
-                            isDarkMode: _isDarkMode,
-                            isSelected: _navIndex == 2,
-                            onTap: () => _selectRootTab(2),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          ListenableBuilder(
-            listenable: _nowPlaying,
-            builder: (context, _) {
-              final hasCurrentTrack = _nowPlaying.hasCurrentTrack;
-              final shouldShowMiniPlayer = hasCurrentTrack && _navIndex != 1;
-              if (!shouldShowMiniPlayer) {
-                return const SizedBox.shrink();
-              }
-              return Positioned(
-                bottom: 88 + safeBottom,
-                left: 16,
-                right: 16,
-                child: _PlayerFloatingBar(
-                  player: _player,
-                  onNext: () => _playNext(),
-                  onPrev: () => _playPrev(),
-                  onOpenNowPlaying: () => _selectRootTab(1),
-                  resolveMiniPlayerTrack: _resolveMiniPlayerTrack,
-                  onPlayFromQueue: (track, index) => _playQueueIndex(index),
-                  isDarkMode: _isDarkMode,
-                  knownTrackDurationsMs: _knownTrackDurationsMs,
-                  knownTrackDurations: _knownTrackDurations,
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSignInScreen() {
-    return Scaffold(
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: _buildAppBackground(
-              [_pink, _accentDefault, _purple, _cyan],
-              signIn: true,
-            ),
-          ),
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildGradientText('INFAME', size: 52, spacing: 4),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Stream your Google Drive library with a proper music-player feel.',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                      color: _textSub,
-                      fontSize: 14,
-                      height: 1.5,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 42),
-                  _signingIn
-                      ? const CircularProgressIndicator(color: _pink)
-                      : GestureDetector(
-                          onTap: _signIn,
-                          child: GlassyContainer(
-                            radius: 30,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 30, vertical: 16),
-                            customBorder: _pink.withOpacity(0.35),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.cloud_rounded,
-                                    color: _accentDefault),
-                                const SizedBox(width: 10),
-                                Text(
-                                  'Connect Google Drive',
-                                  style: GoogleFonts.inter(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildSignInScreen() => _buildSignInScreenFromPart();
 
   // ── Album View ────────────────────────────────────────────────────────────
   Widget _buildAlbumView() => _buildAlbumViewFromPart();
@@ -8032,129 +7735,32 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     required String subtitle,
     required List<Map<String, String>> items,
     double bottomPadding = 22,
-  }) {
-    if (items.isEmpty) return const <Widget>[];
-
-    return [
-      SliverPadding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-        sliver: SliverToBoxAdapter(
-          child: _HomeSectionHeader(title: title, subtitle: subtitle),
-        ),
-      ),
-      SliverPadding(
-        padding: EdgeInsets.fromLTRB(20, 0, 20, bottomPadding),
-        sliver: SliverToBoxAdapter(
-          child: SizedBox(
-            height: 214,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (context, i) {
-                final info = items[i];
-                return _HomeAlbumCard(
-                  info: info,
-                  onTap: () => _openAlbumByBrain(info),
-                  isDarkMode: _isDarkMode,
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    ];
-  }
+  }) =>
+      _homeAlbumShelfSliversFromPart(
+        title: title,
+        subtitle: subtitle,
+        items: items,
+        bottomPadding: bottomPadding,
+      );
 
   // ── Library Tab ───────────────────────────────────────────────────────────
 
   // ── Search Tab ────────────────────────────────────────────────────────────
 
-  Widget _buildNowPlayingTab() {
-    return ListenableBuilder(
-      listenable: _nowPlaying,
-      builder: (context, _) {
-        final track = _nowPlaying.track;
-        if (track == null) {
-          final textColor = _isDarkMode ? _darkTextPri : _lightTextPri;
-          final subTextColor = _isDarkMode ? _darkTextSub : _lightTextSub;
-          final accent = _isDarkMode ? _neonPurple : _lightAccentPink;
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 36),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.music_off_rounded, size: 52, color: accent),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Nothing playing',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                      color: textColor,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Pick something from Home or Library',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                      color: subTextColor,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        final trackId = DriveUtils.effectiveId(track) ?? '';
-        final record = trackId.isEmpty ? null : _libraryTrackIndex[trackId];
-        final albumName =
-            ((record?['album'] ?? record?['albumName'] ?? '')).trim();
-
-        return _FullScreenPlayerSheet(
-          player: _player,
-          onNext: () => _playNext(),
-          onPrev: () => _playPrev(),
-          onPlayFromQueue: (queueTrack, index) => _playQueueIndex(index),
-          onRemoveQueueItemAt: _removeQueueItemAt,
-          onClearUpcomingQueue: _clearUpcomingQueue,
-          isDarkMode: _isDarkMode,
-          albumName: albumName,
-          isLiked: _isTrackLiked(track),
-          onToggleLiked: () => _toggleLikedTrack(track),
-          knownTrackDurationsMs: _knownTrackDurationsMs,
-          knownTrackDurations: _knownTrackDurations,
-          embedded: true,
-        );
-      },
-    );
-  }
+  Widget _buildNowPlayingTab() => _buildNowPlayingTabFromPart();
 
   Widget _buildSearchTab() => _buildSearchTabFromPart();
 
   void _searchSetState(VoidCallback fn) => setState(fn);
 
+  void _librarySetState(VoidCallback fn) => setState(fn);
+
+  void _mainShellSetState(VoidCallback fn) => setState(fn);
+
   Widget _buildAppBackground(List<Color> colors, {bool signIn = false}) =>
       _buildAppBackgroundFromPart(colors, signIn: signIn);
 
   Widget _buildGradientText(String text,
-      {required double size, double spacing = 0}) {
-    return Text(
-      text,
-      style: GoogleFonts.inter(
-        fontSize: size,
-        fontWeight: FontWeight.w900,
-        color: _textPri,
-        letterSpacing: spacing,
-      ),
-    );
-  }
+          {required double size, double spacing = 0}) =>
+      _buildGradientTextFromPart(text, size: size, spacing: spacing);
 }

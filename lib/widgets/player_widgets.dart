@@ -84,31 +84,336 @@ class _VinylDisc extends StatelessWidget {
           ],
           // Center label with album artwork
           Container(
-            width: centerSize,
-            height: centerSize,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: safe,
+              width: centerSize,
+              height: centerSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: safe,
+                ),
+                border: Border.all(
+                    color: Colors.white.withOpacity(0.08), width: 0.5),
               ),
-              border:
-                  Border.all(color: Colors.white.withOpacity(0.08), width: 0.5),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: coverUrl != null && coverUrl!.isNotEmpty
-                ? Image(
-                    image: _coverProvider(coverUrl!)!,
+              clipBehavior: Clip.antiAlias,
+              child: (() {
+                final provider = coverUrl != null && coverUrl!.isNotEmpty
+                    ? _coverProvider(coverUrl!)
+                    : null;
+                if (provider != null) {
+                  return Image(
+                    image: provider,
                     fit: BoxFit.cover,
                     width: centerSize,
                     height: centerSize,
-                  )
-                : Icon(
-                    Icons.music_note_rounded,
-                    size: size * 0.18,
-                    color: Colors.white.withOpacity(0.50),
-                  ),
+                  );
+                }
+                return Icon(
+                  Icons.music_note_rounded,
+                  size: size * 0.18,
+                  color: Colors.white.withOpacity(0.50),
+                );
+              })()),
+        ],
+      ),
+    );
+  }
+}
+
+class _NowPlayingMarqueeText extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+  final double height;
+  final double pixelsPerSecond;
+  final Duration pauseStart;
+  final Duration pauseEnd;
+  final TextAlign textAlign;
+
+  const _NowPlayingMarqueeText({
+    required this.text,
+    required this.style,
+    required this.height,
+    this.pixelsPerSecond = 32,
+    this.pauseStart = const Duration(milliseconds: 900),
+    this.pauseEnd = const Duration(milliseconds: 900),
+    this.textAlign = TextAlign.left,
+  });
+
+  @override
+  State<_NowPlayingMarqueeText> createState() => _NowPlayingMarqueeTextState();
+}
+
+class _NowPlayingMarqueeTextState extends State<_NowPlayingMarqueeText>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  double _availableWidth = 0;
+  double _textWidth = 0;
+  bool _scrolling = false;
+  bool _measureScheduled = false;
+  String _lastText = '';
+  TextStyle? _lastStyle;
+  TextDirection? _lastDirection;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this);
+  }
+
+  @override
+  void didUpdateWidget(covariant _NowPlayingMarqueeText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text ||
+        oldWidget.style != widget.style ||
+        oldWidget.height != widget.height ||
+        oldWidget.pixelsPerSecond != widget.pixelsPerSecond ||
+        oldWidget.pauseStart != widget.pauseStart ||
+        oldWidget.pauseEnd != widget.pauseEnd) {
+      _resetScroll();
+      _scheduleMeasure(force: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _resetScroll() {
+    _controller.stop();
+    _controller.value = 0;
+    _scrolling = false;
+  }
+
+  void _scheduleMeasure({bool force = false}) {
+    if (_measureScheduled && !force) return;
+    _measureScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _measureScheduled = false;
+      if (!mounted) return;
+      _measure();
+    });
+  }
+
+  void _measure() {
+    final direction = Directionality.of(context);
+    final painter = TextPainter(
+      text: TextSpan(text: widget.text, style: widget.style),
+      textDirection: direction,
+      maxLines: 1,
+      ellipsis: null,
+    )..layout();
+
+    final availableWidth = _availableWidth;
+    final textWidth = painter.width;
+    final shouldScroll = textWidth > availableWidth + 1;
+
+    final changed = _textWidth != textWidth ||
+        _availableWidth != availableWidth ||
+        _scrolling != shouldScroll ||
+        _lastText != widget.text ||
+        _lastStyle != widget.style ||
+        _lastDirection != direction;
+
+    if (!changed) return;
+
+    setState(() {
+      _textWidth = textWidth;
+      _availableWidth = availableWidth;
+      _scrolling = shouldScroll;
+      _lastText = widget.text;
+      _lastStyle = widget.style;
+      _lastDirection = direction;
+    });
+
+    if (_scrolling) {
+      final overflow = math.max(0.0, _textWidth - _availableWidth);
+      final scrollMs =
+          math.max(4000, ((overflow / widget.pixelsPerSecond) * 1000).round());
+      _controller.duration = Duration(
+        milliseconds: widget.pauseStart.inMilliseconds +
+            scrollMs +
+            widget.pauseEnd.inMilliseconds +
+            scrollMs,
+      );
+      if (!_controller.isAnimating) {
+        _controller.repeat();
+      }
+    } else {
+      _resetScroll();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        if (_availableWidth != availableWidth || _lastText != widget.text) {
+          _availableWidth = availableWidth;
+          _scheduleMeasure();
+        }
+
+        final textWidget = Text(
+          widget.text,
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.visible,
+          textAlign: widget.textAlign,
+          style: widget.style,
+        );
+
+        if (!_scrolling || _textWidth <= _availableWidth + 1) {
+          return Align(
+            alignment: widget.textAlign == TextAlign.center
+                ? Alignment.center
+                : Alignment.centerLeft,
+            child: SizedBox(
+              width: availableWidth,
+              height: widget.height,
+              child: textWidget,
+            ),
+          );
+        }
+
+        final overflow = math.max(0.0, _textWidth - _availableWidth);
+        final pauseStartMs = widget.pauseStart.inMilliseconds;
+        final pauseEndMs = widget.pauseEnd.inMilliseconds;
+        final scrollMs =
+            math.max(1, ((overflow / widget.pixelsPerSecond) * 1000).round());
+        final scrollBackMs = scrollMs;
+
+        return ClipRect(
+          child: SizedBox(
+            width: availableWidth,
+            height: widget.height,
+            child: AnimatedBuilder(
+              animation: _controller,
+              child: SizedBox(
+                width: _textWidth,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: textWidget,
+                ),
+              ),
+              builder: (context, child) {
+                final totalMs = _controller.duration?.inMilliseconds ??
+                    (pauseStartMs + scrollMs + pauseEndMs + scrollBackMs);
+                final elapsedMs = (_controller.value * totalMs)
+                    .clamp(0.0, totalMs.toDouble());
+                double offset = 0;
+                if (elapsedMs <= pauseStartMs) {
+                  offset = 0;
+                } else if (elapsedMs <= pauseStartMs + scrollMs) {
+                  final local = (elapsedMs - pauseStartMs) / scrollMs;
+                  offset = -overflow *
+                      Curves.easeInOutCubic.transform(
+                        local.clamp(0.0, 1.0),
+                      );
+                } else if (elapsedMs <= pauseStartMs + scrollMs + pauseEndMs) {
+                  offset = -overflow;
+                } else {
+                  final local =
+                      (elapsedMs - pauseStartMs - scrollMs - pauseEndMs) /
+                          scrollBackMs;
+                  offset = -overflow +
+                      overflow *
+                          Curves.easeInOutCubic.transform(
+                            local.clamp(0.0, 1.0),
+                          );
+                }
+
+                return Transform.translate(
+                  offset: Offset(offset, 0),
+                  child: child,
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _NowPlayingMetaBlock extends StatelessWidget {
+  final Map<String, String> meta;
+  final bool isDarkMode;
+  final bool compact;
+
+  const _NowPlayingMetaBlock({
+    required this.meta,
+    required this.isDarkMode,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = (meta['title'] ?? 'Unknown').trim();
+    final artist = (meta['artist'] ?? 'Unknown Artist').trim();
+    final album = (meta['album'] ?? '').trim();
+
+    final titleStyle = GoogleFonts.inter(
+      fontSize: compact ? 20 : 22,
+      height: 1.06,
+      fontWeight: FontWeight.w900,
+      color: isDarkMode ? Colors.white.withOpacity(0.95) : _lightText,
+      letterSpacing: -0.75,
+    );
+    final artistStyle = GoogleFonts.inter(
+      fontSize: compact ? 13 : 14,
+      height: 1.08,
+      fontWeight: FontWeight.w600,
+      color: isDarkMode ? Colors.white.withOpacity(0.60) : _lightSubtext,
+      letterSpacing: -0.12,
+    );
+    final albumStyle = GoogleFonts.inter(
+      fontSize: compact ? 11.5 : 12,
+      height: 1.06,
+      fontWeight: FontWeight.w700,
+      color: isDarkMode
+          ? Colors.white.withOpacity(0.42)
+          : _lightSubtext.withOpacity(0.92),
+      letterSpacing: -0.05,
+    );
+
+    return SizedBox(
+      height: compact ? 66 : 72,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            height: compact ? 23 : 25,
+            child: _NowPlayingMarqueeText(
+              text: title,
+              style: titleStyle,
+              height: compact ? 23 : 25,
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 4),
+          SizedBox(
+            height: compact ? 16 : 17,
+            child: _NowPlayingMarqueeText(
+              text: artist,
+              style: artistStyle,
+              height: compact ? 16 : 17,
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 4),
+          SizedBox(
+            height: compact ? 14 : 15,
+            child: _NowPlayingMarqueeText(
+              text: album.isEmpty ? ' ' : album,
+              style: albumStyle,
+              height: compact ? 14 : 15,
+              textAlign: TextAlign.center,
+            ),
           ),
         ],
       ),
@@ -755,12 +1060,16 @@ class _LyricsSheetState extends State<_LyricsSheet> {
 class _QueueSheet extends StatelessWidget {
   final List<Color> colors;
   final Future<void> Function(drive.File track, int index) onPlayFromQueue;
+  final void Function(int index)? onRemoveQueueItemAt;
+  final VoidCallback? onClearUpcomingQueue;
   final Map<String, int> knownTrackDurationsMs;
   final Map<String, Duration> knownTrackDurations;
 
   const _QueueSheet({
     required this.colors,
     required this.onPlayFromQueue,
+    this.onRemoveQueueItemAt,
+    this.onClearUpcomingQueue,
     required this.knownTrackDurationsMs,
     required this.knownTrackDurations,
   });
@@ -833,107 +1142,83 @@ class _QueueSheet extends StatelessWidget {
                         );
                       }
 
-                      return ListView.builder(
+                      final queue = _nowPlaying.queue;
+                      final activeIndex = _nowPlaying.queueIndex.clamp(
+                        0,
+                        queue.length - 1,
+                      );
+                      final currentTrack = queue[activeIndex];
+                      final upcomingTracks = queue.sublist(activeIndex + 1);
+
+                      return ListView(
                         physics: const BouncingScrollPhysics(),
-                        itemCount: _nowPlaying.queue.length,
-                        itemBuilder: (context, i) {
-                          final track = _nowPlaying.queue[i];
-                          final meta = DriveUtils.getTrackMeta(track);
-                          final isActive = i == _nowPlaying.queueIndex;
-                          final trackKey = track.id ?? '';
-
-                          // Get duration from cache
-                          Duration? duration;
-                          final durationMs = knownTrackDurationsMs[trackKey];
-                          if (durationMs != null && durationMs > 0) {
-                            duration = Duration(milliseconds: durationMs);
-                          } else {
-                            duration = knownTrackDurations[trackKey];
-                          }
-
-                          return GestureDetector(
-                            onTap: () async {
-                              await onPlayFromQueue(track, i);
-                            },
-                            behavior: HitTestBehavior.opaque,
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: isActive
-                                    ? Colors.white.withOpacity(0.11)
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: isActive
-                                      ? safe[1].withOpacity(0.40)
-                                      : Colors.transparent,
+                        children: [
+                          Text(
+                            'Now Playing',
+                            style: GoogleFonts.inter(
+                              color: _textSub,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildQueueRow(
+                            context,
+                            track: currentTrack,
+                            index: activeIndex,
+                            isActive: true,
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Text(
+                                'Up Next',
+                                style: GoogleFonts.inter(
+                                  color: _textSub,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.4,
                                 ),
                               ),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 28,
-                                    child: Text(
-                                      '${i + 1}',
-                                      style: GoogleFonts.inter(
-                                        color: isActive ? safe[1] : _textSub,
-                                        fontWeight: FontWeight.w800,
-                                      ),
+                              const Spacer(),
+                              if (upcomingTracks.isNotEmpty &&
+                                  onClearUpcomingQueue != null)
+                                TextButton(
+                                  onPressed: onClearUpcomingQueue,
+                                  child: Text(
+                                    'Clear Queue',
+                                    style: GoogleFonts.inter(
+                                      color: safe[1],
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          meta['title'] ?? 'Unknown',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: GoogleFonts.inter(
-                                            color:
-                                                isActive ? safe[1] : _textPri,
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 3),
-                                        Text(
-                                          meta['artist'] ?? 'Unknown Artist',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: GoogleFonts.inter(
-                                            color: _textSub,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (duration != null)
-                                    Padding(
-                                      padding: const EdgeInsets.only(left: 12),
-                                      child: Text(
-                                        '${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}',
-                                        style: GoogleFonts.inter(
-                                          color: _textSub,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  if (isActive)
-                                    Icon(Icons.graphic_eq_rounded,
-                                        color: safe[1], size: 22),
-                                ],
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          if (upcomingTracks.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                'No upcoming songs.',
+                                style: GoogleFonts.inter(
+                                  color: _textSub,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
-                          );
-                        },
+                          for (var i = activeIndex + 1; i < queue.length; i++)
+                            _buildQueueRow(
+                              context,
+                              track: queue[i],
+                              index: i,
+                              isActive: false,
+                              allowRemove: onRemoveQueueItemAt != null,
+                            ),
+                        ],
                       );
                     },
                   ),
@@ -941,6 +1226,108 @@ class _QueueSheet extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQueueRow(
+    BuildContext context, {
+    required drive.File track,
+    required int index,
+    required bool isActive,
+    bool allowRemove = false,
+  }) {
+    final safe = _safeColors(colors);
+    final meta = DriveUtils.getTrackMeta(track);
+    final trackKey = track.id ?? '';
+
+    Duration? duration;
+    final durationMs = knownTrackDurationsMs[trackKey];
+    if (durationMs != null && durationMs > 0) {
+      duration = Duration(milliseconds: durationMs);
+    } else {
+      duration = knownTrackDurations[trackKey];
+    }
+
+    return GestureDetector(
+      onTap: () async {
+        await onPlayFromQueue(track, index);
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: isActive ? Colors.white.withOpacity(0.11) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isActive ? safe[1].withOpacity(0.40) : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 28,
+              child: Text(
+                '${index + 1}',
+                style: GoogleFonts.inter(
+                  color: isActive ? safe[1] : _textSub,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    meta['title'] ?? 'Unknown',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: isActive ? safe[1] : _textPri,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    meta['artist'] ?? 'Unknown Artist',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: _textSub,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (duration != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: Text(
+                  '${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}',
+                  style: GoogleFonts.inter(
+                    color: _textSub,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            if (isActive)
+              Icon(Icons.graphic_eq_rounded, color: safe[1], size: 22),
+            if (!isActive && allowRemove)
+              IconButton(
+                onPressed: () => onRemoveQueueItemAt?.call(index),
+                icon: Icon(Icons.close_rounded,
+                    color: _textSub.withOpacity(0.9), size: 20),
+                splashRadius: 18,
+              ),
+          ],
         ),
       ),
     );
@@ -954,6 +1341,7 @@ class _PlayerFloatingBar extends StatelessWidget {
   final VoidCallback onPrev;
   final VoidCallback onOpenNowPlaying;
   final Future<void> Function(drive.File track, int index) onPlayFromQueue;
+  final drive.File? Function() resolveMiniPlayerTrack;
   final bool isDarkMode;
   final Map<String, int> knownTrackDurationsMs;
   final Map<String, Duration> knownTrackDurations;
@@ -964,6 +1352,7 @@ class _PlayerFloatingBar extends StatelessWidget {
     required this.onPrev,
     required this.onOpenNowPlaying,
     required this.onPlayFromQueue,
+    required this.resolveMiniPlayerTrack,
     required this.isDarkMode,
     required this.knownTrackDurationsMs,
     required this.knownTrackDurations,
@@ -974,7 +1363,7 @@ class _PlayerFloatingBar extends StatelessWidget {
     return ListenableBuilder(
       listenable: _nowPlaying,
       builder: (ctx, _) {
-        final track = _nowPlaying.track;
+        final track = resolveMiniPlayerTrack();
         if (track == null) return const SizedBox.shrink();
 
         final meta = DriveUtils.getTrackMeta(track);
@@ -996,6 +1385,7 @@ class _PlayerFloatingBar extends StatelessWidget {
             return GestureDetector(
               onTap: () {
                 HapticFeedback.selectionClick();
+                debugPrint('MiniPlayer tapped -> opening Now Playing');
                 onOpenNowPlaying();
               },
               behavior: HitTestBehavior.opaque,
@@ -1100,26 +1490,30 @@ class _PlayerFloatingBar extends StatelessWidget {
                                         : _lightAccentPink.withOpacity(0.12),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: isLoading
-                                      ? SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
+                                  child: AnimatedContentSwap(
+                                    swapKey:
+                                        'mini-action-$isLoading-$isPlaying',
+                                    child: isLoading
+                                        ? SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              color: isDarkMode
+                                                  ? Colors.white
+                                                  : _lightAccentPink,
+                                              strokeWidth: 2.1,
+                                            ),
+                                          )
+                                        : Icon(
+                                            isPlaying
+                                                ? Icons.pause_rounded
+                                                : Icons.play_arrow_rounded,
                                             color: isDarkMode
                                                 ? Colors.white
                                                 : _lightAccentPink,
-                                            strokeWidth: 2.1,
+                                            size: 30,
                                           ),
-                                        )
-                                      : Icon(
-                                          isPlaying
-                                              ? Icons.pause_rounded
-                                              : Icons.play_arrow_rounded,
-                                          color: isDarkMode
-                                              ? Colors.white
-                                              : _lightAccentPink,
-                                          size: 30,
-                                        ),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 4),
@@ -1168,7 +1562,7 @@ class _PlayerFloatingBar extends StatelessWidget {
                                       : 0.0;
                                   return ClipRRect(
                                     borderRadius: BorderRadius.circular(99),
-                                      child: LinearProgressIndicator(
+                                    child: LinearProgressIndicator(
                                       value: prog,
                                       minHeight: 2.5,
                                       backgroundColor: isDarkMode
@@ -1311,6 +1705,8 @@ class _FullScreenPlayerSheet extends StatefulWidget {
   final VoidCallback onNext;
   final VoidCallback onPrev;
   final Future<void> Function(drive.File track, int index) onPlayFromQueue;
+  final void Function(int index)? onRemoveQueueItemAt;
+  final VoidCallback? onClearUpcomingQueue;
   final bool isDarkMode;
   final bool embedded;
   final String albumName;
@@ -1324,6 +1720,8 @@ class _FullScreenPlayerSheet extends StatefulWidget {
     required this.onNext,
     required this.onPrev,
     required this.onPlayFromQueue,
+    this.onRemoveQueueItemAt,
+    this.onClearUpcomingQueue,
     required this.isDarkMode,
     this.embedded = false,
     this.albumName = '',
@@ -1378,6 +1776,8 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
         return _QueueSheet(
           colors: colors,
           onPlayFromQueue: widget.onPlayFromQueue,
+          onRemoveQueueItemAt: widget.onRemoveQueueItemAt,
+          onClearUpcomingQueue: widget.onClearUpcomingQueue,
           knownTrackDurationsMs: widget.knownTrackDurationsMs,
           knownTrackDurations: widget.knownTrackDurations,
         );
@@ -1503,7 +1903,48 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
       listenable: _nowPlaying,
       builder: (context, _) {
         final track = _nowPlaying.track;
-        if (track == null) return const SizedBox.shrink();
+        if (track == null) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.music_note_rounded,
+                    size: 44,
+                    color: widget.isDarkMode
+                        ? Colors.white.withOpacity(0.62)
+                        : _lightAccentPink.withOpacity(0.72),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Nothing playing',
+                    style: GoogleFonts.inter(
+                      color: widget.isDarkMode
+                          ? Colors.white.withOpacity(0.9)
+                          : _lightText,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Pick something from Home or Library',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: widget.isDarkMode
+                          ? Colors.white.withOpacity(0.55)
+                          : _lightSubtext,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
 
         final meta = DriveUtils.getTrackMeta(track);
         final coverUrl = _nowPlaying.currentCoverUrl;
@@ -1512,7 +1953,10 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
         final media = MediaQuery.of(context);
         final width = media.size.width;
         final height = media.size.height;
-        final artworkSize = math.min(width - 64, height * 0.38);
+        final compact = height <= 780;
+        final ultraCompact = height <= 700;
+        final maxByHeight = compact ? height * 0.33 : height * 0.38;
+        final artworkSize = math.min(math.min(width - 48, 320.0), maxByHeight);
 
         return StreamBuilder<PlayerState>(
           stream: widget.player.playerStateStream,
@@ -1597,146 +2041,104 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                       ),
                     ),
                   ),
-                  SizedBox(
-                    height: height * 0.96,
-                    child: SafeArea(
-                      top: false,
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          22,
-                          10,
-                          22,
-                          math.max(20, media.padding.bottom + 4),
-                        ),
-                        child: Column(
-                          children: [
-                            if (!widget.embedded) ...[
-                              Container(
-                                width: 42,
-                                height: 5,
-                                decoration: BoxDecoration(
-                                  color: widget.isDarkMode
-                                      ? Colors.white.withOpacity(0.34)
-                                      : _lightAccentPink.withOpacity(0.34),
-                                  borderRadius: BorderRadius.circular(99),
-                                ),
+                  SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        22,
+                        10,
+                        22,
+                        math.max(20, media.padding.bottom + 4),
+                      ),
+                      child: Column(
+                        children: [
+                          if (!widget.embedded) ...[
+                            Container(
+                              width: 42,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                color: widget.isDarkMode
+                                    ? Colors.white.withOpacity(0.34)
+                                    : _lightAccentPink.withOpacity(0.34),
+                                borderRadius: BorderRadius.circular(99),
                               ),
-                              const SizedBox(height: 14),
-                            ] else
-                              const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                widget.embedded
-                                    ? const SizedBox(width: 40)
-                                    : IconButton(
-                                        visualDensity: VisualDensity.compact,
-                                        onPressed: () =>
-                                            Navigator.maybePop(context),
-                                        icon: Icon(
-                                            Icons.keyboard_arrow_down_rounded,
-                                            color: widget.isDarkMode
-                                                ? Colors.white.withOpacity(0.88)
-                                                : _lightText.withOpacity(0.88),
-                                            size: 32),
-                                      ),
-                                const Spacer(),
-                                Text(
-                                  'NOW PLAYING',
-                                  style: GoogleFonts.inter(
-                                    color: widget.isDarkMode
-                                        ? Colors.white.withOpacity(0.46)
-                                        : _lightSubtext.withOpacity(0.60),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 1.1,
-                                  ),
-                                ),
-                                const Spacer(),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: () =>
-                                      _openMoreActions(context, meta, colors),
-                                  icon: Icon(Icons.more_horiz_rounded,
-                                      color: widget.isDarkMode
-                                          ? Colors.white.withOpacity(0.88)
-                                          : _lightText.withOpacity(0.88),
-                                      size: 30),
-                                ),
-                              ],
                             ),
                             const SizedBox(height: 14),
-                            Expanded(
-                              flex: 8,
-                              child: Center(
-                                child: AspectRatio(
-                                  aspectRatio: 1.0,
-                                  child: _InteractiveCoverArt(
-                                    key: ValueKey('full_cover_$coverUrl'),
-                                    heroTag: 'now_playing_artwork',
-                                    coverUrl: coverUrl,
-                                    colors: colors,
-                                    size:
-                                        math.min(artworkSize + 12, width - 56),
-                                    shadow: true,
-                                    isPlaying: isPlaying,
-                                  ),
+                          ] else
+                            const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              widget.embedded
+                                  ? const SizedBox(width: 40)
+                                  : IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      onPressed: () =>
+                                          Navigator.maybePop(context),
+                                      icon: Icon(
+                                          Icons.keyboard_arrow_down_rounded,
+                                          color: widget.isDarkMode
+                                              ? Colors.white.withOpacity(0.88)
+                                              : _lightText.withOpacity(0.88),
+                                          size: 32),
+                                    ),
+                              const Spacer(),
+                              Text(
+                                'NOW PLAYING',
+                                style: GoogleFonts.inter(
+                                  color: widget.isDarkMode
+                                      ? Colors.white.withOpacity(0.46)
+                                      : _lightSubtext.withOpacity(0.60),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.1,
+                                ),
+                              ),
+                              const Spacer(),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () =>
+                                    _openMoreActions(context, meta, colors),
+                                icon: Icon(Icons.more_horiz_rounded,
+                                    color: widget.isDarkMode
+                                        ? Colors.white.withOpacity(0.88)
+                                        : _lightText.withOpacity(0.88),
+                                    size: 30),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: compact ? 10 : 14),
+                          SizedBox(
+                            height: artworkSize,
+                            child: Center(
+                              child: SizedBox(
+                                width: artworkSize,
+                                height: artworkSize,
+                                child: _InteractiveCoverArt(
+                                  key: ValueKey('full_cover_$coverUrl'),
+                                  heroTag: 'now_playing_artwork',
+                                  coverUrl: coverUrl,
+                                  colors: colors,
+                                  size: artworkSize,
+                                  shadow: true,
+                                  isPlaying: isPlaying,
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 18),
-                            Column(
-                              children: [
-                                Text(
-                                  meta['title'] ?? 'Unknown',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 26,
-                                    height: 1.05,
-                                    fontWeight: FontWeight.w900,
-                                    color: widget.isDarkMode
-                                        ? Colors.white.withOpacity(0.95)
-                                        : _lightText,
-                                    letterSpacing: -0.85,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  meta['artist'] ?? 'Unknown Artist',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 15.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: widget.isDarkMode
-                                        ? Colors.white.withOpacity(0.60)
-                                        : _lightSubtext,
-                                    letterSpacing: -0.15,
-                                  ),
-                                ),
-                                if (widget.albumName.isNotEmpty) ...[
-                                  const SizedBox(height: 5),
-                                  Text(
-                                    widget.albumName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: widget.isDarkMode
-                                          ? Colors.white.withOpacity(0.42)
-                                          : _lightSubtext.withOpacity(0.92),
-                                      letterSpacing: -0.05,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 18),
-                            StreamBuilder<Duration>(
+                          ),
+                          SizedBox(height: compact ? 12 : 18),
+                          _NowPlayingMetaBlock(
+                            meta: {
+                              ...meta,
+                              if (widget.albumName.isNotEmpty)
+                                'album': widget.albumName,
+                            },
+                            isDarkMode: widget.isDarkMode,
+                            compact: compact,
+                          ),
+                          SizedBox(height: compact ? 12 : 18),
+                          SizedBox(
+                            height: compact ? 56 : 62,
+                            child: StreamBuilder<Duration>(
                               stream: widget.player.positionStream,
                               builder: (_, posSnap) {
                                 return StreamBuilder<Duration?>(
@@ -1755,37 +2157,42 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
 
                                     return Column(
                                       children: [
-                                        SliderTheme(
-                                          data: SliderTheme.of(context)
-                                              .copyWith(
-                                            trackHeight: 2.6,
-                                            thumbShape:
-                                                const RoundSliderThumbShape(
-                                              enabledThumbRadius: 5.0,
+                                        SizedBox(
+                                          height: compact ? 22 : 24,
+                                          child: SliderTheme(
+                                            data: SliderTheme.of(context)
+                                                .copyWith(
+                                              trackHeight: compact ? 2.2 : 2.4,
+                                              thumbShape:
+                                                  const RoundSliderThumbShape(
+                                                enabledThumbRadius: 4.8,
+                                              ),
+                                              overlayShape:
+                                                  const RoundSliderOverlayShape(
+                                                overlayRadius: 9,
+                                              ),
                                             ),
-                                            overlayShape:
-                                                const RoundSliderOverlayShape(
-                                              overlayRadius: 10,
+                                            child: Slider(
+                                              value: value,
+                                              max: max,
+                                              activeColor: widget.isDarkMode
+                                                  ? Colors.white
+                                                      .withOpacity(0.88)
+                                                  : _lightAccentPink,
+                                              inactiveColor: widget.isDarkMode
+                                                  ? Colors.white
+                                                      .withOpacity(0.14)
+                                                  : _lightAccentPink
+                                                      .withOpacity(0.15),
+                                              onChanged: (v) {
+                                                widget.player.seek(Duration(
+                                                    milliseconds: v.toInt()));
+                                              },
                                             ),
-                                          ),
-                                          child: Slider(
-                                            value: value,
-                                            max: max,
-                                            activeColor: widget.isDarkMode
-                                                ? Colors.white.withOpacity(0.88)
-                                                : _lightAccentPink,
-                                            inactiveColor: widget.isDarkMode
-                                                ? Colors.white.withOpacity(0.14)
-                                                : _lightAccentPink
-                                                    .withOpacity(0.15),
-                                            onChanged: (v) {
-                                              widget.player.seek(Duration(
-                                                  milliseconds: v.toInt()));
-                                            },
                                           ),
                                         ),
-                                        Transform.translate(
-                                          offset: const Offset(0, -7),
+                                        SizedBox(
+                                          height: compact ? 12 : 14,
                                           child: Row(
                                             mainAxisAlignment:
                                                 MainAxisAlignment.spaceBetween,
@@ -1797,7 +2204,8 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                                         ? Colors.white
                                                             .withOpacity(0.52)
                                                         : _lightSubtext,
-                                                    fontSize: 11.5,
+                                                    fontSize:
+                                                        compact ? 11 : 11.5,
                                                     fontWeight:
                                                         FontWeight.w700),
                                               ),
@@ -1808,7 +2216,8 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                                         ? Colors.white
                                                             .withOpacity(0.52)
                                                         : _lightSubtext,
-                                                    fontSize: 11.5,
+                                                    fontSize:
+                                                        compact ? 11 : 11.5,
                                                     fontWeight:
                                                         FontWeight.w700),
                                               ),
@@ -1821,22 +2230,25 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                 );
                               },
                             ),
-                            const SizedBox(height: 8),
-                            Row(
+                          ),
+                          SizedBox(height: ultraCompact ? 2 : 6),
+                          SizedBox(
+                            height: compact ? 74 : 82,
+                            child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 IconButton(
                                   icon: Icon(Icons.skip_previous_rounded,
-                                      size: 46,
+                                      size: compact ? 36 : 40,
                                       color: widget.isDarkMode
-                                          ? Colors.white.withOpacity(0.92)
-                                          : _lightAccentPink.withOpacity(0.92)),
+                                          ? Colors.white.withOpacity(0.90)
+                                          : _lightAccentPink.withOpacity(0.90)),
                                   onPressed: () {
                                     HapticFeedback.selectionClick();
                                     widget.onPrev();
                                   },
                                 ),
-                                const SizedBox(width: 28),
+                                SizedBox(width: compact ? 16 : 24),
                                 GestureDetector(
                                   onTap: () {
                                     if (isLoading) return;
@@ -1844,11 +2256,11 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                     isPlaying
                                         ? widget.player.pause()
                                         : widget.player.play();
-                                },
-                                behavior: HitTestBehavior.opaque,
-                                child: Container(
-                                    width: 74,
-                                    height: 74,
+                                  },
+                                  behavior: HitTestBehavior.opaque,
+                                  child: Container(
+                                    width: compact ? 62 : 68,
+                                    height: compact ? 62 : 68,
                                     decoration: BoxDecoration(
                                       color: widget.isDarkMode
                                           ? Colors.white.withOpacity(0.10)
@@ -1856,33 +2268,41 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                       shape: BoxShape.circle,
                                     ),
                                     child: Center(
-                                      child: isLoading
-                                          ? const SizedBox(
-                                              width: 36,
-                                              height: 36,
-                                              child: CircularProgressIndicator(
-                                                  color: Colors.white,
-                                                  strokeWidth: 2.1),
-                                            )
-                                          : Icon(
-                                              isPlaying
-                                                  ? Icons.pause_rounded
-                                                  : Icons.play_arrow_rounded,
-                                              color: widget.isDarkMode
-                                                  ? Colors.white
-                                                  : _lightAccentPink,
-                                              size: 54,
-                                            ),
+                                      child: AnimatedContentSwap(
+                                        swapKey:
+                                            'full-action-$isLoading-$isPlaying',
+                                        child: isLoading
+                                            ? SizedBox(
+                                                width: 30,
+                                                height: 30,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  color: widget.isDarkMode
+                                                      ? Colors.white
+                                                      : _lightAccentPink,
+                                                  strokeWidth: 2.0,
+                                                ),
+                                              )
+                                            : Icon(
+                                                isPlaying
+                                                    ? Icons.pause_rounded
+                                                    : Icons.play_arrow_rounded,
+                                                color: widget.isDarkMode
+                                                    ? Colors.white
+                                                    : _lightAccentPink,
+                                                size: compact ? 44 : 48,
+                                              ),
+                                      ),
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 28),
+                                SizedBox(width: compact ? 16 : 24),
                                 IconButton(
                                   icon: Icon(Icons.skip_next_rounded,
-                                      size: 46,
+                                      size: compact ? 36 : 40,
                                       color: widget.isDarkMode
-                                          ? Colors.white.withOpacity(0.92)
-                                          : _lightAccentPink.withOpacity(0.92)),
+                                          ? Colors.white.withOpacity(0.90)
+                                          : _lightAccentPink.withOpacity(0.90)),
                                   onPressed: () {
                                     HapticFeedback.selectionClick();
                                     widget.onNext();
@@ -1890,40 +2310,40 @@ class _FullScreenPlayerSheetState extends State<_FullScreenPlayerSheet> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12),
-                            _SystemVolumeSlider(isDarkMode: widget.isDarkMode),
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: [
-                                _PremiumActionButton(
-                                  icon: widget.isLiked
-                                      ? Icons.favorite_rounded
-                                      : Icons.favorite_border_rounded,
-                                  label: 'Liked',
-                                  onTap: widget.onToggleLiked,
-                                  colors: colors,
-                                  isDarkMode: widget.isDarkMode,
-                                ),
-                                _PremiumActionButton(
-                                  icon: Icons.chat_bubble_outline_rounded,
-                                  label: 'Lyrics',
-                                  onTap: () =>
-                                      _openLyricsSheet(context, meta, colors),
-                                  colors: colors,
-                                  isDarkMode: widget.isDarkMode,
-                                ),
-                                _PremiumActionButton(
-                                  icon: Icons.format_list_bulleted_rounded,
-                                  label: 'Queue',
-                                  onTap: () => _openQueueSheet(context, colors),
-                                  colors: colors,
-                                  isDarkMode: widget.isDarkMode,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+                          ),
+                          SizedBox(height: ultraCompact ? 2 : 6),
+                          _SystemVolumeSlider(isDarkMode: widget.isDarkMode),
+                          SizedBox(height: ultraCompact ? 8 : 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _PremiumActionButton(
+                                icon: widget.isLiked
+                                    ? Icons.favorite_rounded
+                                    : Icons.favorite_border_rounded,
+                                label: 'Liked',
+                                onTap: widget.onToggleLiked,
+                                colors: colors,
+                                isDarkMode: widget.isDarkMode,
+                              ),
+                              _PremiumActionButton(
+                                icon: Icons.chat_bubble_outline_rounded,
+                                label: 'Lyrics',
+                                onTap: () =>
+                                    _openLyricsSheet(context, meta, colors),
+                                colors: colors,
+                                isDarkMode: widget.isDarkMode,
+                              ),
+                              _PremiumActionButton(
+                                icon: Icons.format_list_bulleted_rounded,
+                                label: 'Queue',
+                                onTap: () => _openQueueSheet(context, colors),
+                                colors: colors,
+                                isDarkMode: widget.isDarkMode,
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   ),

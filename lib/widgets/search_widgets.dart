@@ -218,79 +218,81 @@ extension _SearchWidgetsExtension on _MainScreenState {
                         return merged;
                       }).toList();
 
-                      return GestureDetector(
+                      return FadeSlideIn(
                         key: ValueKey('search-artist-$artist'),
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => _ArtistDetailPage(
-                                artistName: artist,
-                                artistImageUrl: _artistImageCache[
-                                        _artistImageCacheKey(artist)] ??
-                                    '',
-                                artistAlbums: artistAlbums,
-                                artistTrackRecords: records,
-                                isDarkMode: _isDarkMode,
-                                accentColors: _safeColors(colors),
-                                onOpenAlbum: _openAlbum,
-                                onPlayTrack: (file,
-                                    {queue, idx, coverUrl, colors}) {
-                                  return _playSong(
-                                    file,
-                                    queue: queue,
-                                    idx: idx,
-                                    coverUrl: coverUrl,
-                                    colors: colors,
-                                  );
-                                },
-                              ),
-                            ),
-                          );
-                        },
-                        behavior: HitTestBehavior.opaque,
-                        child: GlassyContainer(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(16),
-                          radius: 20,
-                          child: Row(
-                            children: [
-                              _ArtistAvatar(
-                                artistName: artist,
-                                imageUrl: _artistImageCache[
-                                    _artistImageCacheKey(artist)],
-                                colors: colors,
-                                size: 56,
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      artist,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w900,
-                                        color: _textPri,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${records.length} songs • ${albumSet.length} albums',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 12,
-                                        color: _textSub,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
+                        child: PressableScale(
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => _ArtistDetailPage(
+                                  artistName: artist,
+                                  artistImageUrl: _artistImageCache[
+                                          _artistImageCacheKey(artist)] ??
+                                      '',
+                                  artistAlbums: artistAlbums,
+                                  artistTrackRecords: records,
+                                  isDarkMode: _isDarkMode,
+                                  accentColors: _safeColors(colors),
+                                  onOpenAlbum: _openAlbum,
+                                  onPlayTrack: (file,
+                                      {queue, idx, coverUrl, colors}) {
+                                    return _playSong(
+                                      file,
+                                      queue: queue,
+                                      idx: idx,
+                                      coverUrl: coverUrl,
+                                      colors: colors,
+                                    );
+                                  },
                                 ),
                               ),
-                              const Icon(Icons.chevron_right_rounded,
-                                  color: _textSub),
-                            ],
+                            );
+                          },
+                          child: GlassyContainer(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            radius: 20,
+                            child: Row(
+                              children: [
+                                _ArtistAvatar(
+                                  artistName: artist,
+                                  imageUrl: _artistImageCache[
+                                      _artistImageCacheKey(artist)],
+                                  colors: colors,
+                                  size: 56,
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        artist,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w900,
+                                          color: _textPri,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${records.length} songs • ${albumSet.length} albums',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: _textSub,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(Icons.chevron_right_rounded,
+                                    color: _textSub),
+                              ],
+                            ),
                           ),
                         ),
                       );
@@ -325,90 +327,92 @@ extension _SearchWidgetsExtension on _MainScreenState {
                       final coverUrl = album['cover'] ?? brain?['cover'] ?? '';
                       final gradient = getAlbumGradient(name);
 
-                      return GestureDetector(
+                      return FadeSlideIn(
                         key: ValueKey(
                             'search-album-${album['id'] ?? album['name']}'),
-                        onTap: () => _openAlbum(album),
-                        behavior: HitTestBehavior.opaque,
-                        child: GlassyContainer(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(12),
-                          radius: 20,
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 58,
-                                height: 58,
-                                decoration: BoxDecoration(
-                                  borderRadius:
-                                      BorderRadius.circular(kArtworkRadius),
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: gradient,
+                        child: PressableScale(
+                          onTap: () => _openAlbum(album),
+                          child: GlassyContainer(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(12),
+                            radius: 20,
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 58,
+                                  height: 58,
+                                  decoration: BoxDecoration(
+                                    borderRadius:
+                                        BorderRadius.circular(kArtworkRadius),
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: gradient,
+                                    ),
+                                  ),
+                                  child: coverUrl.isNotEmpty
+                                      ? ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                              kArtworkRadius),
+                                          child: _coverImage(
+                                            coverUrl,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) =>
+                                                _AlbumFallbackCover(
+                                              name: name,
+                                              colors: gradient,
+                                              radius: kArtworkRadius,
+                                              small: true,
+                                            ),
+                                          ),
+                                        )
+                                      : _AlbumFallbackCover(
+                                          name: name,
+                                          colors: gradient,
+                                          radius: kArtworkRadius,
+                                          small: true,
+                                        ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w900,
+                                          color: _textPri,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        artist.isNotEmpty
+                                            ? artist
+                                            : year.isNotEmpty
+                                                ? year
+                                                : genre.isNotEmpty
+                                                    ? genre
+                                                    : 'Album • Drive',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: _textSub,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                child: coverUrl.isNotEmpty
-                                    ? ClipRRect(
-                                        borderRadius: BorderRadius.circular(
-                                            kArtworkRadius),
-                                        child: _coverImage(
-                                          coverUrl,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
-                                              _AlbumFallbackCover(
-                                            name: name,
-                                            colors: gradient,
-                                            radius: kArtworkRadius,
-                                            small: true,
-                                          ),
-                                        ),
-                                      )
-                                    : _AlbumFallbackCover(
-                                        name: name,
-                                        colors: gradient,
-                                        radius: kArtworkRadius,
-                                        small: true,
-                                      ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w900,
-                                        color: _textPri,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      artist.isNotEmpty
-                                          ? artist
-                                          : year.isNotEmpty
-                                              ? year
-                                              : genre.isNotEmpty
-                                                  ? genre
-                                                  : 'Album • Drive',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 12,
-                                        color: _textSub,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Icon(Icons.chevron_right_rounded,
-                                  color: _textSub),
-                            ],
+                                const Icon(Icons.chevron_right_rounded,
+                                    color: _textSub),
+                              ],
+                            ),
                           ),
                         ),
                       );

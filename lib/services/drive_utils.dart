@@ -2,6 +2,66 @@ part of '../main.dart';
 
 // ─── Safe Static Utils ──────────────────────────────────────────────────────
 class DriveUtils {
+  static const String localSourcePrefix = 'local:';
+
+  static bool isLocalFile(drive.File f) {
+    final id = f.id ?? '';
+    final source = f.appProperties?['source'] ?? f.properties?['source'] ?? '';
+    return id.startsWith(localSourcePrefix) || source == 'local';
+  }
+
+  static String? localPath(drive.File f) {
+    final direct = f.appProperties?['path'] ??
+        f.appProperties?['localPath'] ??
+        f.properties?['path'] ??
+        f.properties?['localPath'];
+    if (direct != null && direct.trim().isNotEmpty) return direct.trim();
+
+    final id = f.id ?? '';
+    if (id.startsWith(localSourcePrefix)) {
+      final encoded = id.substring(localSourcePrefix.length);
+      return Uri.decodeComponent(encoded);
+    }
+    return null;
+  }
+
+  static String? localSourceRef(drive.File f) {
+    final direct = f.appProperties?['path'] ??
+        f.appProperties?['localPath'] ??
+        f.appProperties?['localUri'] ??
+        f.properties?['path'] ??
+        f.properties?['localPath'] ??
+        f.properties?['localUri'];
+    if (direct != null && direct.trim().isNotEmpty) return direct.trim();
+
+    final id = f.id ?? '';
+    if (id.startsWith(localSourcePrefix)) {
+      final encoded = id.substring(localSourcePrefix.length);
+      return Uri.decodeComponent(encoded);
+    }
+    return null;
+  }
+
+  static bool isContentUriString(String value) {
+    final lower = value.trim().toLowerCase();
+    return lower.startsWith('content://');
+  }
+
+  static Uri? localAudioUri(drive.File f) {
+    final ref = localSourceRef(f);
+    if (ref == null || ref.trim().isEmpty) return null;
+    if (isContentUriString(ref)) return Uri.parse(ref);
+    return Uri.file(ref);
+  }
+
+  static String localIdForPath(String path) {
+    return localIdForSource(path);
+  }
+
+  static String localIdForSource(String source) {
+    return '$localSourcePrefix${Uri.encodeComponent(source)}';
+  }
+
   static String? effectiveId(drive.File f) {
     if (f.mimeType == 'application/vnd.google-apps.shortcut' &&
         f.shortcutDetails?.targetId != null) {
@@ -30,7 +90,11 @@ class DriveUtils {
         n.endsWith('.m4a') ||
         n.endsWith('.aac') ||
         n.endsWith('.ogg') ||
-        n.endsWith('.wma');
+        n.endsWith('.wma') ||
+        n.endsWith('.opus') ||
+        n.endsWith('.alac') ||
+        n.endsWith('.aiff') ||
+        n.endsWith('.aif');
   }
 
   static Map<String, String> getTrackMeta(drive.File f) {
@@ -38,7 +102,10 @@ class DriveUtils {
     if (cached != null) return cached.toMap();
     String title = f.name ?? 'Unknown';
     title = title.replaceAll(
-      RegExp(r'\.(mp3|flac|wav|m4a|aac|ogg|wma)$', caseSensitive: false),
+      RegExp(
+        r'\.(mp3|flac|wav|m4a|aac|ogg|wma|opus|alac|aiff|aif)$',
+        caseSensitive: false,
+      ),
       '',
     );
 
@@ -67,13 +134,16 @@ class DriveUtils {
     if (ext == 'wav') return 'WAV';
     if (ext == 'ogg') return 'OGG';
     if (ext == 'wma') return 'WMA';
+    if (ext == 'opus') return 'OPUS';
+    if (ext == 'alac') return 'ALAC';
+    if (ext == 'aiff' || ext == 'aif') return 'AIFF';
     if (ext == 'mp3') return 'MP3';
     return ext.isEmpty ? 'AUDIO' : ext.toUpperCase();
   }
 
   static bool isLosslessAudio(drive.File f) {
     final ext = audioExtension(f);
-    return ext == 'FLAC' || ext == 'WAV';
+    return ext == 'FLAC' || ext == 'WAV' || ext == 'ALAC' || ext == 'AIFF';
   }
 
   static int? estimatedBitrateKbps(drive.File f, Duration? duration) {
@@ -110,7 +180,9 @@ class DriveUtils {
         : rawKbps;
 
     if (ext == 'FLAC') {
-      return kbps == null ? 'FLAC • Lossless' : 'FLAC • Lossless • ${kbps} kbps';
+      return kbps == null
+          ? 'FLAC • Lossless'
+          : 'FLAC • Lossless • ${kbps} kbps';
     }
 
     if (ext == 'WAV') {
@@ -131,5 +203,4 @@ class DriveUtils {
 
     return '$ext • ${kbps} kbps • $quality';
   }
-
 }

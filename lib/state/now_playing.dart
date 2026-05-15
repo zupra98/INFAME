@@ -14,12 +14,20 @@ class NowPlaying extends ChangeNotifier {
   NowPlaying._();
 
   drive.File? track;
+  drive.File? currentTrack;
+  String? currentFileId;
   List<drive.File> queue = [];
   int queueIndex = -1;
   String? currentCoverUrl;
   List<Color> dynamicColors = List<Color>.from(defaultDynamicColors);
   bool shuffleEnabled = false;
   bool repeatOne = false;
+
+  bool get hasCurrentTrack {
+    if (currentFileId?.trim().isNotEmpty == true) return true;
+    if (track != null) return true;
+    return currentTrack != null;
+  }
 
   void toggleShuffle() {
     shuffleEnabled = !shuffleEnabled;
@@ -35,6 +43,17 @@ class NowPlaying extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearTrack() {
+    track = null;
+    currentTrack = null;
+    currentFileId = null;
+    queue = [];
+    queueIndex = -1;
+    currentCoverUrl = null;
+    dynamicColors = List<Color>.from(defaultDynamicColors);
+    notifyListeners();
+  }
+
   void setTrack(
     drive.File t,
     List<drive.File> q,
@@ -43,6 +62,8 @@ class NowPlaying extends ChangeNotifier {
     List<Color>? colors,
   }) {
     track = t;
+    currentTrack = t;
+    currentFileId = t.id?.trim();
     queue = q;
     queueIndex = idx;
     currentCoverUrl = coverUrl;

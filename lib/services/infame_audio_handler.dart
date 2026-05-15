@@ -4,6 +4,12 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
+const bool kVerboseAudioServiceLogs = false;
+
+void _audioServiceVerboseLog(String message) {
+  if (kVerboseAudioServiceLogs) debugPrint(message);
+}
+
 class InfameAudioHandler extends BaseAudioHandler with SeekHandler {
   AudioPlayer? _player;
   StreamSubscription<PlaybackEvent>? _playerEventSub;
@@ -46,7 +52,7 @@ class InfameAudioHandler extends BaseAudioHandler with SeekHandler {
     _processingStateSub = player.processingStateStream.listen((_) {
       _broadcastPlaybackState();
     });
-    debugPrint('AudioService handler attached to player');
+    _audioServiceVerboseLog('AudioService handler attached to player');
     _broadcastPlaybackState();
   }
 
@@ -63,7 +69,8 @@ class InfameAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> updateMediaItem(MediaItem mediaItem) async {
     this.mediaItem.add(mediaItem);
-    debugPrint('AudioService media item -> title=${mediaItem.title}');
+    _audioServiceVerboseLog(
+        'AudioService media item -> title=${mediaItem.title}');
     _broadcastPlaybackState();
   }
 
@@ -95,7 +102,7 @@ class InfameAudioHandler extends BaseAudioHandler with SeekHandler {
         },
       ),
     );
-    debugPrint(
+    _audioServiceVerboseLog(
       'AudioService state -> playing=$isPlaying processing=${audioProcessingState.name}',
     );
   }
@@ -130,7 +137,7 @@ class InfameAudioHandler extends BaseAudioHandler with SeekHandler {
         },
       ),
     );
-    debugPrint(
+    _audioServiceVerboseLog(
       'AudioService state -> playing=$playing processing=${processingState.name}',
     );
   }
