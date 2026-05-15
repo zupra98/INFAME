@@ -46,3 +46,11 @@ app.*.map.json
 
 # Google Services (contains API keys - DO NOT COMMIT)
 android/app/google-services.json
+
+*_SUMMARY.md
+*_AUDIT.md
+android/app/google-services.json
+**/google-services.json
+.env
+*.env
+secrets/

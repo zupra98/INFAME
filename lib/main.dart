@@ -450,7 +450,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Duration _lastWatchdogPosition = Duration.zero;
   int _watchdogNearEndTicks = 0;
   bool _autoAdvanceStartNudgeRunning = false;
+  bool _autoAdvanceInProgress = false;
   bool _audioServicePlayerAttached = false;
+  int _lastNotificationUpdateMs = 0;
   final Map<String, String> _artistImageCache = {};
   final Map<String, int> _artistImageFailureCooldown = {};
   final Set<String> _artistImageFetchInFlight = {};
@@ -579,6 +581,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String _accentMode = _accentModeChampagne;
   Map<String, String>? _lastPlayed;
   final Map<String, List<Color>> _albumColorCache = {};
+  final Set<String> _albumColorExtractionInProgress = {};
   final Map<String, List<drive.File>> _albumTracksCache = {};
   final Map<String, Duration> _knownTrackDurations = {};
   final Map<String, Map<String, String>> _libraryBrain = {};
@@ -676,10 +679,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       },
       onPause: () async {
         await _player.pause();
+        _stopPlaybackEndWatchdog(reason: 'playbackPaused');
         _syncAudioServicePlaybackState();
       },
       onStop: () async {
         await _player.stop();
+        _stopPlaybackEndWatchdog(reason: 'playbackStopped');
         _syncAudioServicePlaybackState();
       },
       onSeek: (position) async {
@@ -913,6 +918,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.detached) {
       unawaited(_shutdownPlaybackService());
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      // App going to background - stop UI-only timers but keep playback watchdog for auto-advance
+      _stopMetadataProgressPoller(reason: 'appBackgrounded');
+      debugPrint('BackgroundPerformance lifecycle=$state stoppedUiTimers=true playbackWatchdogKept=true audioContinues=true');
+    } else if (state == AppLifecycleState.resumed) {
+      // App returning to foreground - restart UI timers if needed
+      debugPrint('BackgroundPerformance lifecycle=$state restartedUiTimers=true');
+      // Metadata poller will be restarted if scan is active
     }
   }
 
@@ -2676,6 +2690,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void _syncAudioServicePlaybackState() {
     final handler = _infameAudioHandlerInstance;
     if (handler == null) return;
+
+    // Throttle notification updates to at most once per 200ms
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastNotificationUpdateMs < 200) return;
+    _lastNotificationUpdateMs = nowMs;
+
     handler.updatePlaybackState(
       isPlaying: _player.playing,
       processingState: _player.processingState,
@@ -3370,6 +3390,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _pollMetadataProgressSnapshot();
   }
 
+  void _stopMetadataProgressPoller({String? reason}) {
+    _metadataProgressPoller?.cancel();
+    _metadataProgressPoller = null;
+    if (reason != null) {
+      debugPrint('MetadataProgressPoller stopped reason=$reason');
+    }
+  }
+
   Future<void> _pollMetadataProgressSnapshot() async {
     try {
       String? raw = await FlutterForegroundTask.getData<String>(
@@ -3398,6 +3426,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             normalized['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
             _saveMetadataProgressSnapshot(normalized);
           }
+        }
+
+        // Stop polling if scan is not running
+        if (normalized['running'] != true) {
+          _stopMetadataProgressPoller(reason: 'notRunning');
+          return;
         }
 
         _applyMetadataProgressData(normalized);
@@ -6363,16 +6397,36 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
 
+    // Prevent duplicate extractions for the same cover
+    if (_albumColorExtractionInProgress.contains(key)) {
+      debugPrint('Palette extraction already in progress for $key, skipping');
+      return;
+    }
+
+    _albumColorExtractionInProgress.add(key);
+
     try {
       final provider = _coverProvider(coverUrl);
       if (provider == null) throw Exception('Missing cover provider');
 
-      // Sample entire image to capture edge colors
-      final palette = await PaletteGenerator.fromImageProvider(
+      // Resize image to 300x300 for faster palette extraction
+      final paletteProvider = ResizeImage(
         provider,
-        maximumColorCount: 40,
-        region: null, // Full image sampling
+        width: 300,
+        height: 300,
       );
+
+      final stopwatch = Stopwatch()..start();
+
+      // Sample resized image for color extraction (much faster than full image)
+      final palette = await PaletteGenerator.fromImageProvider(
+        paletteProvider,
+        maximumColorCount: 24,
+        region: null, // Full resized image sampling
+      );
+
+      stopwatch.stop();
+      debugPrint('Palette extraction took ${stopwatch.elapsedMilliseconds}ms for $key');
 
       // Sort by combination of population (70%) and saturation (30%)
       final hsl = HSLColor.fromColor;
@@ -6474,6 +6528,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _albumColorCache[key] = fallback;
       _saveAlbumColorCache();
       if (mounted) setState(() => _currentDynamicColors = fallback);
+    } finally {
+      _albumColorExtractionInProgress.remove(key);
     }
   }
 
@@ -7023,6 +7079,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (_lastHandledCompletionSignature == completionSignature) return;
 
       _handlingPlaybackComplete = true;
+      _autoAdvanceInProgress = true;
       _lastHandledCompletionSignature = completionSignature;
       debugPrint('AutoAdvance trigger reason=$reason');
       debugPrint(
@@ -7069,10 +7126,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _showError('Could not continue playback: $e');
     } finally {
       _handlingPlaybackComplete = false;
+      _autoAdvanceInProgress = false;
     }
   }
 
   bool _tryAutoAdvanceCurrentTrack(String reason) {
+    if (_autoAdvanceInProgress) {
+      debugPrint('AutoAdvance skipped reason=alreadyInProgress source=$reason');
+      return false;
+    }
+
     final current = _nowPlaying.track ?? _nowPlaying.currentTrack;
     if (current == null) return false;
     final key = _trackKey(current);
@@ -7088,6 +7151,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final signature = '$key|$idx|${_playRequestSerial.toString()}';
     if (_lastHandledCompletionSignature == signature) return false;
 
+    debugPrint('AutoAdvance started source=$reason');
     unawaited(_handleTrackCompleted(reason: reason));
     return true;
   }
@@ -7118,9 +7182,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void _startPlaybackEndWatchdog() {
     _playbackEndWatchdog?.cancel();
     _playbackEndWatchdog = Timer.periodic(
-      const Duration(milliseconds: 450),
+      const Duration(milliseconds: 1000),
       (_) => _checkPlaybackEndWatchdog(),
     );
+    debugPrint('PlaybackEndWatchdog started interval=1000ms');
+  }
+
+  void _stopPlaybackEndWatchdog({String? reason}) {
+    _playbackEndWatchdog?.cancel();
+    _playbackEndWatchdog = null;
+    if (reason != null) {
+      debugPrint('PlaybackEndWatchdog stopped reason=$reason');
+    }
   }
 
   void _checkPlaybackEndWatchdog() {

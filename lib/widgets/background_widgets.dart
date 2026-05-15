@@ -11,16 +11,18 @@ extension _BackgroundWidgetsExtension on _MainScreenState {
       child: Stack(
         children: [
           Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    const Color(0xFF17171D),
-                    Color.alphaBlend(safe[3].withOpacity(0.22), _bg),
-                    Colors.black,
-                  ],
+            child: ExcludeSemantics(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF17171D),
+                      Color.alphaBlend(safe[3].withOpacity(0.22), _bg),
+                      Colors.black,
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -29,36 +31,48 @@ extension _BackgroundWidgetsExtension on _MainScreenState {
             Positioned(
                 top: signIn ? -120 : -130,
                 left: -130,
-                child: _buildBlob(safe[0], 360 * glowOpacity)),
+                child: ExcludeSemantics(
+                  child: _buildBlob(safe[0], 360 * glowOpacity),
+                )),
             Positioned(
                 top: signIn ? 100 : 46,
                 right: -150,
-                child: _buildBlob(safe[2], 310 * glowOpacity)),
+                child: ExcludeSemantics(
+                  child: _buildBlob(safe[2], 310 * glowOpacity),
+                )),
             Positioned(
                 bottom: 90,
                 right: -110,
-                child: _buildBlob(safe[1], 330 * glowOpacity)),
+                child: ExcludeSemantics(
+                  child: _buildBlob(safe[1], 330 * glowOpacity),
+                )),
             Positioned(
                 bottom: -140,
                 left: -130,
-                child: _buildBlob(safe[3], 320 * glowOpacity)),
+                child: ExcludeSemantics(
+                  child: _buildBlob(safe[3], 320 * glowOpacity),
+                )),
             if (_glassMode == glassModePretty)
               Positioned(
                   top: 260,
                   left: 36,
-                  child: _buildBlob(safe[1].withOpacity(0.8), 190)),
+                  child: ExcludeSemantics(
+                    child: _buildBlob(safe[1].withOpacity(0.8), 190),
+                  )),
           ],
           Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withOpacity(signIn ? 0.08 : 0.14),
-                    Colors.black.withOpacity(0.22),
-                    Colors.black.withOpacity(0.50),
-                  ],
+            child: ExcludeSemantics(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(signIn ? 0.08 : 0.14),
+                      Colors.black.withOpacity(0.22),
+                      Colors.black.withOpacity(0.50),
+                    ],
+                  ),
                 ),
               ),
             ),

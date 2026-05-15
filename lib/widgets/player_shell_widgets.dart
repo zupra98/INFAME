@@ -71,13 +71,16 @@ extension _PlayerShellWidgetsExtension on _MainScreenState {
                     physics: const BouncingScrollPhysics(),
                     itemCount: 3,
                     onPageChanged: (index) {
-                      debugPrint('PageView onPageChanged index=$index');
+                      final stopwatch = Stopwatch()..start();
+                      debugPrint('TabSwitch start index=$index');
                       _mainShellSetState(() {
                         _navIndex = index;
                         _viewingAlbum = null;
                         _currentDynamicColors =
                             List<Color>.from(_defaultDynamicColors);
                       });
+                      stopwatch.stop();
+                      debugPrint('TabSwitch complete index=$index tookMs=${stopwatch.elapsedMilliseconds}');
                     },
                     itemBuilder: (context, index) {
                       switch (index) {
