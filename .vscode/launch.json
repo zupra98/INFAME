@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Musix Chrome (Port 5700)",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "debug",
+            "args": [
+                "--web-port=5700"
+            ]
+        }
+    ]
+}
